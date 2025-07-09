@@ -1,20 +1,21 @@
 'T-FACE CR1000 Series Datalogger Program
-'20240624 CMM updated IRRs
-'20220701 CMM updated IRRs
-'07/08/2019 Updated H - IRT and sent to data logger 15W Hestia
-'date: 06/01/2018
-'program author: Carl Bernacchi
+' Creation date: 2018-06-01
+' Last update: 2025-03-28 - JAM
+' program authors:  Carl Bernacchi - primary
+'                   Chris Montes - modifications
+'                   Jesse McGrath - EKM Omnimeter metering code
+
 
 '  This program will operate the T-FACE Experiment.
 
-'  All IRRs will be read continuously and stored into separate files
+'  All IRRs will be read continuously and stored into separate files.
 
 '  There are two total files - one for T-FACE and one for all raw variables.
 
 
 'SDM-CV04 C1 connected to C1 on CR3000, C2 to C2, C3 to C3
-'  Out1 to Dimmer 1
-' If additional reps are added in future, then Out2 to Dimmer 2, Out3 to Dimmer 3
+' Out1 to Dimmer 1.
+' If additional reps are added in future, then Out2 to Dimmer 2, Out3 to Dimmer 3.
 ' Out4 to Dimmer 4. Additional SDM-CV04s can also be added.
 
 'Note: The SDM-CV04 needs to be in Voltage Mode and the default as it comes from the
@@ -22,30 +23,34 @@
 '      The first SDM-CV04 needs to have factory default address 0.
 '      Another jumper also needes to be changed to set the address of a second
 '      SDM-CV04 to be address 1.
+'
 
-'Enter constants for the TFACE IRTs provided by Apogee
-'T-FACE Reference plot 6202
+' EKM Omnimeter 1 v.3 pin 14 connected to CR1000X pin P2
+' EKM Omnimeter 1 v.3 pin 15 connected to CR1000X pin ground
+' The Omnimeter sends 800 pulses per KWh
+
+' Enter constants for the TFACE IRTs provided by Apogee.
+
+' T-FACE Reference plot SN 6174
 							
-Const r_mc2 = 76623.6 	
-Const r_mc1 = 7917300	
-Const r_mc0 = 1475550000
-Const r_bc2 = 8685.81
-Const r_bc1 = 114508
-Const r_bc0 = -1522350				
+Const r_mc2 = 64256.9
+Const r_mc1 = 7623490
+Const r_mc0 = 1399260000
+Const r_bc2 = 4442.54
+Const r_bc1 = 169126
+Const r_bc0 = -3313600
 
+' T-FACE Heated plot SN 6204
 
-										
-'T-FACE Heated plot 6227
-		
-Const h_mc2 = 66043.5
-Const h_mc1 = 7512660
-Const h_mc0 = 1376890000
-Const h_bc2 = 4998.59 
-Const h_bc1 = 93901.7 
-Const h_bc0 = -2671520	
+Const h_mc2 = 62453.2
+Const h_mc1 = 7317150
+Const h_mc0 = 1278270000
+Const h_bc2 = 5409.55
+Const h_bc1 = 150597
+Const h_bc0 = -5665510		
 			
 					
-
+			
 'Below are constants for the control of the heater outputs.
 Const twopi = 6.283185
 Const piov2 = 1.5708
@@ -78,6 +83,10 @@ Dim cons_m, cons_b,
 Public upper_lim, lower_lim, heatmanset, rainon
 Dim Eff, Maxrad
 
+' Public variables for power metering using EKM Omnimeter I v.3
+'Public ekmMeterPulseCount
+'Public ekmMeterKWh
+
 Dim delta_t		 'need to set delta_t to execution interval
 Dim P_error, D_dMVovdt
 Dim Prev_Meas, Prev_Err
@@ -86,11 +95,11 @@ Dim r_m, h_m, r_b, h_b
 Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
 
 'These are if the RainDetector is located in this plot
-'Public raindet
-'Public rainctrl
+Public raindet
+Public rainctrl
 
 'Define Data Tables (these are the final stored programs)
-'  !!!!!!Note to chcange the name of all the files according to plot.
+'  !!!!!!Note to change the name of all the files according to plot.
 'This table is for all the heater array raw variables
 DataTable (raw,True,-1) ' change based on plot
   DataInterval(0,10,Min,-1)
@@ -106,6 +115,26 @@ DataTable (raw,True,-1) ' change based on plot
   Average (1,Pnl_Tmp,IEEE4,0)
   Sample (1,heatmanset,IEEE4)
   Average(1,rainon,FP2,0)
+  'Totalize (1, ekmMeterPulseCount, UINT4, 0)
+  'Sample (1, ekmMeterKWh, IEEE4)
+EndTable
+
+DataTable(irr_params, True, -1)
+  ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0) 
+  Sample(1, r_mC2, IEEE4)
+  Sample(1, r_mC1, IEEE4)
+  Sample(1, r_mC0, IEEE4)
+  Sample(1, r_bC2, IEEE4)
+  Sample(1, r_bC1, IEEE4)
+  Sample(1, r_bC0, IEEE4)
+  Sample(1, r_sn,  UINT2)
+  Sample(1, h_mC2, IEEE4)
+  Sample(1, h_mC1, IEEE4)
+  Sample(1, h_mC0, IEEE4)
+  Sample(1, h_bC2, IEEE4)
+  Sample(1, h_bC1, IEEE4)
+  Sample(1, h_bC0, IEEE4)
+  Sample(1, h_sn,  UINT2)
 EndTable
 
 '  This Table is for the T-FACE critical variables.
@@ -131,7 +160,7 @@ Sub PIRcontrol
   D_dMVovdt = (T_Diffrns - Prev_Meas)/delta_t    'DERIVATIVE
   Kd_x_D = Kd*D_dMVovdt
 
-  Prev_Err = (Prev_Err+P_error)/2 'average error   INTEGRATIVE
+  Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
   Prev_Err = Prev_Err*delta_t
   Prev_Err= Prev_Err*Ki            'next Ki increment
   IxKi_sum = IxKi_sum+ Prev_Err    'I = integral of error
@@ -144,26 +173,29 @@ Sub PIRcontrol
 EndSub
 
 
-'  Adjust the apparent tempperature in the heated plot for radiation reflected
+'  Adjust the apparent temperature in the heated plot for radiation reflected
 '  from the heaters.
 Sub  CorrectRef
   'Assume: fraction of thermal energy emitted by heater in the 8 to 14 um band
-  '        sensed by Apogee IRR-P is 0.14 for heater at 600C. Multiply by 0.9
-  '				for window transmittance > 0.13
+  '        sensed by Apogee IRR-P is 0.14 for heater at 600 degrees C.
+  '        Multiply by 0.9 for window transmittance > 0.13.
+
   'Assume: fraction of thermal energy emitted by canopy in the 8 to 14 um band
-  '        sensed by Apogee IRR-P5 is 0.37 as per canopy at 20C. Multipy by 0.9
-  '        for window transmittance > 0.33.
+  '        sensed by Apogee IRR-P5 is 0.37 as per canopy at 20 degrees C.
+  '        Multipy by 0.9 for window transmittance > 0.33.
+
   'Assume: emissivity of plant canopy = 0.98
   Eff = 10 + 25*EXP(-0.17*Wind)  'compute efficiency of heater system (%) from wind (m/s)
-  Maxrad = Nmbr_Htrs*1000*(Eff/100)/7.07 'Compute max down rad over 7.07 m2 plot
-  Rheater = Maxrad*(PID_CR/10)^2 'scale in proportion to the square of the last value
-  ' of PID control, so that have full correction when heaters fully
-  'on and no correction when heaters off.
-  Rreflect = Rheater*(1-.98)*0.13 'calculate radiation from heater reflected by canopy
-  'in 8-14 um band
+  Maxrad = Nmbr_Htrs * 1000 * (Eff / 100) / 7.07 ' Compute max down rad over 7.07 m^2 plot
+  Rheater = Maxrad * (PID_CR / 10)^2 ' Scale in proportion to the square of the
+                                     ' last value of PID control, so that have full
+                                     ' correction when heaters fully on and no correction
+                                     ' when heaters off.
+  Rreflect = Rheater * (1 - 0.98) * 0.13              ' Calculate radiation from heater reflected by canopy
+                                                      ' in 8-14 um band.
   R_IRT = 0.33*SB*(T_correct+273.15)^4 'calculate amount of energy sensed by IRT
   Radjust  = R_IRT-Rreflect  'subtract the rediation from the heater
-  Th_Adjust =((Radjust/(SB*.33))^0.25)-273.15 'Calculate temperature from the radiation
+  Th_Adjust = ((Radjust / (SB * 0.33))^0.25) - 273.15 ' Calculate temperature from the radiation
 
   'Note: no adjustment for canopy emmissivity and reflected sky radiation are being
   'because it is assumed that these will be the same in the reference plot.
@@ -174,6 +206,10 @@ EndSub
 '****************************************************************************************
 'Main Program
 BeginProg
+    Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
+        CallTable irr_params
+        ExitScan
+    NextScan
   ' The following are constants for this experiment.  They represent the defaults by can be
   '  changed real-time when the program is running.  Because these are all placed before the
   '  'Scan' command (below) they are set when the program first compiles and then not again.
@@ -182,7 +218,7 @@ BeginProg
   '  or Num Display options when connected.
 
   Nmbr_Htrs = 24   'Number of Mor FTE heaters (1000W)
-  Target = 2.5		'temperature rise (C) of heated plot in T-FACE above reference plot in daytime
+  Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
   Kp = 50		 		 'tuning constants
   Ki = 0.5
   Kd = 5
@@ -195,10 +231,10 @@ BeginProg
   ' a time-space anomaly which would destroy the universe.  Maybe.
   delta_t=5		 'execution interval.  This must match with the 'Scan' interval below.
   ' This is if the rain detector is located in this plot.
-  '  rainctrl = -1
+  rainctrl = -1
 
 
-  PulseCountReset  ' This resets all pulse counts.  Not sure if its needed, but whatever.
+  PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
   Scan (5,Sec,0,0)
 
@@ -208,7 +244,7 @@ BeginProg
     PulseCount (Wind,1,1 ,0,1,0.09462,0.2) ' This is for an optional windspeed sensor, which
     ' can be used to determine heater efficiency.
 
-    '  This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated)
+    ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
 
     '*******T-FACE***********
     'Measure thermopile voltages of T-FACE Reference IRTs
@@ -222,7 +258,7 @@ BeginProg
 
     'Calculation of target temperature
     TbodyRK = TbodyRC + 273.15
-    TtarRK = ((TbodyRK^4) + r_m *mV_tpileR + r_b)^0.25
+    TtarRK = (TbodyRK^4 + r_m *mV_tpileR + r_b)^0.25
     TtarRC = TtarRK - 273.15
 
     'For Heated Plots
@@ -236,7 +272,7 @@ BeginProg
 
     'Calculation of target temperature
     TbodyHK = TbodyHC + 273.15
-    TtarHK = ((TbodyHK^4) + h_m * mV_tpileH + h_b)^0.25
+    TtarHK = (TbodyHK^4 + h_m * mV_tpileH + h_b)^0.25
     TtarHC = TtarHK - 273.15
 
 
@@ -273,7 +309,7 @@ BeginProg
       PID_lmt = heatmanset
     EndIf
 
-    'Set maximum temperature different - different for each experiment
+    ' Set maximum temperature difference - different for each experiment
     If T_Diffrns > Target + 2 Then IxKi_sum=0
 
 
@@ -287,15 +323,20 @@ BeginProg
     SDMCVO4 (ScldOut(),4,0,10)'Send instruction to SDM-CV04s (mV,reps,SDMaddress,volts)
     '**********************************************************
 
-    'This is the rain detector.  Should be present in only one plot.
-    'ReadIO(raindet,8) 'this checks is there is a 5V signal coming into C4,
-    'if there is, it is raining.Only Necessary on Plot5.
-    '    If raindet = 8 AND rainctrl =-1 Then
-    '      rainon =  -1
-    '    Else
-    '      rainon = 0
-    '    EndIf
+    ' This is the rain detector code.  It should be present in only one plot.
+    ReadIO(raindet, 8) ' This checks is there is a 5V signal coming into C4.
+    
+    ' If there is, it is raining. Only Necessary on Plot 5.
+        If raindet = 8 AND rainctrl =-1 Then
+          rainon =  -1
+        Else
+          rainon = 0
+        EndIf
 
+    ' EKM Omnimeter read pulse count and convert to KW*H
+    ' I know the conversion can be done in one step with PulseCount() but want both the raw count and the conversion
+    'PulseCount(ekmMeterPulseCount, 1, 2, 1, 0, 1, 0)
+    'ekmMeterKWh = ekmMeterPulseCount / 800
 
 
     CallTable raw ' change based on plot
@@ -303,6 +344,3 @@ BeginProg
 
   NextScan
 EndProg
-
-
-          

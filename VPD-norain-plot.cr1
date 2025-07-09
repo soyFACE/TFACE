@@ -29,23 +29,27 @@
 ' EKM Omnimeter 1 v.3 pin 15 connected to CR1000X pin ground
 ' The Omnimeter sends 800 pulses per KWh
 
-
 ' Enter constants for the TFACE IRTs provided by Apogee.
+
 ' T-FACE Reference plot SN 1234
+
 Const r_mC2 = 133757
 Const r_mC1 = 11739300
 Const r_mC0 = 2138210000
 Const r_bC2 = 5021.86
 Const r_bC1 = 366816
 Const r_bC0 = -35064200
+Const r_sn  = 1234
 
 ' T-FACE Heated plot SN 6184
+
 Const h_mC2 = 66863.6
 Const h_mC1 = 7707660
 Const h_mC0 = 1377880000
 Const h_bC2 = 7400.48
 Const h_bC1 = 139180
 Const h_bC0 = -3439490
+Const h_sn  = 6184
 
 ' Below are constants for the control of the heater outputs.
 Const twopi = 6.283185
@@ -115,6 +119,24 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, rainon, FP2, 0)
   Totalize (1, ekmMeterPulseCount, UINT4, 0)
   Sample (1, ekmMeterKWh, IEEE4)
+EndTable
+
+DataTable(irr_params, True, -1)
+  ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0) 
+  Sample(1, r_mC2, IEEE4)
+  Sample(1, r_mC1, IEEE4)
+  Sample(1, r_mC0, IEEE4)
+  Sample(1, r_bC2, IEEE4)
+  Sample(1, r_bC1, IEEE4)
+  Sample(1, r_bC0, IEEE4)
+  Sample(1, r_sn,  UINT2)
+  Sample(1, h_mC2, IEEE4)
+  Sample(1, h_mC1, IEEE4)
+  Sample(1, h_mC0, IEEE4)
+  Sample(1, h_bC2, IEEE4)
+  Sample(1, h_bC1, IEEE4)
+  Sample(1, h_bC0, IEEE4)
+  Sample(1, h_sn,  UINT2)
 EndTable
 
 '  This Table is for the T-FACE critical variables.
@@ -187,6 +209,10 @@ EndSub
 '****************************************************************************************
 ' Main Program
 BeginProg
+    Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
+        CallTable irr_params
+        ExitScan
+    NextScan
   ' The following are constants for this experiment.  They represent the defaults by can be
   ' changed real-time when the program is running.  Because these are all placed before the
   ' 'Scan' command (below) they are set when the program first compiles and then not again.

@@ -1,0 +1,62 @@
+'CR1000X Series Datalogger
+'The datalogger type listed on line 1 determines the default instruction set,
+'compiler, and help files used for a program that uses the .DLD or .CRB program
+'extension. These options can also be set using the Set Datalogger Type dialog box
+'(CRBasic Editor|Tools|Set Datalogger Type).
+
+'For programming tips, copy this address to your browser
+'search window:https://www.campbellsci.com/videos/datalogger-programming
+
+'To create a different opening program template, type in new
+'instructions and select Template | Save as Default Template
+
+'Date: 06/26/2025
+'Program author: Scott, Eneji, and Justin
+
+
+Public PTemp, Batt_volt
+Public CO2Sensor  As Float
+Public H2O As Float
+Public Flowrate As Float
+Public H20sensortmeperature As Float
+Public RawLine As String * 300
+Public Field(9) As String * 10
+Public NBytes As Integer
+
+DataTable (gas_concentrations, 1, -1)
+  DataInterval (0, 5, Sec, 10)
+  Minimum (1, Batt_volt, FP2, False, False)
+  Sample (1, PTemp, FP2)
+  Sample (1, CO2Sensor, FP2)
+  Sample (1, H2O, FP2)
+  Sample (1, Flowrate, FP2)
+  Sample (1, H20sensortmeperature,FP2)
+EndTable
+
+BeginProg
+  SerialOpen(comC1, 19200, 0, 0, 10000)
+  'SerialOut(comC1, "S,1,4" + CHR(13), "+", 2, 0.1)
+  'SerialOut(comC1, "S,11,1" + CHR(13), "+", 2, 0.1)
+
+  Scan (5, sec, 3, 0)
+    PanelTemp (PTemp, 15000)
+    Battery (Batt_volt)
+    SerialInRecord(comC1, RawLine, "M2", 0, CHR(13), NBytes, 11)
+    
+    If Field(1) <> NAN Then
+      SplitStr (Field, RawLine, ",", 9, 5)
+      CO2Sensor = Field(2)
+      H2O = Field(3)
+      Flowrate = Field(5)
+      H20sensortmeperature = Field(7)
+    Else 
+      CO2Sensor = NAN
+      H2O = NAN
+      Flowrate = NAN
+      H20sensortemperature = NAN
+    EndIf
+
+    CallTable gas_concentrations
+
+    NextScan
+EndProg
