@@ -82,6 +82,8 @@ Public Wind
 Dim cons_m, cons_b, 
 Public upper_lim, lower_lim, heatmanset, rainon
 Dim Eff, Maxrad
+Public PingResult As Long
+Public LostConnection As Boolean
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount As Long 
@@ -346,4 +348,20 @@ BeginProg
     CallTable control  ' Change based on plot
 
   NextScan
+
+  ' The loggers often lose network connection and the wireless hardware needs to be restarted.
+  ' This periodically checks whether there's a newtwork connection and if not it turns off
+  ' the 12 V connection that powers the wireless controller.
+  SlowSequence
+    Scan(1200, Sec, 0, 0)
+      PingResult = PingIP("192.168.1.95", 1000)
+      
+      If PingResult = 0 Then
+        LostConnection = True
+        SW12(False)
+        Delay(1, 10, sec)
+        SW12(True)
+      EndIf
+    NextScan
+  EndSequence
 EndProg
