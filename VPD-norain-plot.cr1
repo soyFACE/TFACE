@@ -209,6 +209,7 @@ EndSub
 '****************************************************************************************
 ' Main Program
 BeginProg
+
     Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
         CallTable irr_params
         ExitScan
@@ -235,7 +236,9 @@ BeginProg
   delta_t = 5      ' Execution interval.  This must match with the 'Scan' interval below.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
-  has_ekm_meter = (Status.StationName(1,1) = "24242") ' Aphrodite'
+  If (Status.StationName(1,1) = "24242") Then 
+    has_ekm_meter = True ' Aphrodite'
+    SW12(1)
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
