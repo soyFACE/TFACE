@@ -80,13 +80,8 @@ Dim TtarHK
 Public TtarHC
 Public Wind
 Dim cons_m, cons_b, 
-Public upper_lim, lower_lim, heatmanset, rainon
+Public upper_lim, lower_lim, heatmanset
 Dim Eff, Maxrad
-
-' Public variables for power metering using EKM Omnimeter I v.3
-Public ekmMeterPulseCount As Long 
-Public ekmMeterKWh = nan 
-Public has_ekm_meter As Boolean
 
 Dim delta_t            ' Need to set delta_t to execution interval
 Dim P_error, D_dMVovdt
@@ -95,11 +90,15 @@ Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
 Dim r_m, h_m, r_b, h_b
 Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
 
+' Public variables for power metering using EKM Omnimeter I v.3
+Public ekmMeterPulseCount
+Public ekmMeterKWh = nan 
+Public has_ekm_meter As Boolean
+
 ' RainDetector Variables & Code
 Public is_raining As Boolean = True  ' Start with the assumption that it's raining, and in the first scan it will get the correct value.
 Public is_rain_control As Boolean
 Dim rain_byte_flag
-
 
 ' Define Data Tables (these are the final stored programs)
 '  !!!!!!Note to change the name of all the files according to plot.
@@ -301,10 +300,9 @@ BeginProg
     If PID_lmt > upper_lim Then PID_lmt = upper_lim  ' Set upper limit
 
     If heatmanset < 0 Then
-      ' Set maximum temperature in the heated plot - presently same threshold for both experiments
+      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
 
       If TtarHC > 42 OR is_raining Then
-
         PID_lmt = lower_lim
       Else
         PID_lmt = PID_lmt
@@ -315,8 +313,6 @@ BeginProg
 
     ' Set maximum temperature difference - different for each experiment
      If T_Diffrns > Target + 2 Then IxKi_sum = 0
-
-
 
 
     ScldOut(1) = PID_lmt * 1000   ' Scale from volts to mV
@@ -341,9 +337,21 @@ BeginProg
       ekmMeterKWh = ekmMeterPulseCount / 800
     EndIf
 
-
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
 
   NextScan
+  
+  SlowSequence
+    Scan(2, hr, 0, 0)
+      ' The loggers often lose network connection and the wireless hardware needs to be restarted.
+      ' This code restarts the 12 V connection that powers the wireless controller, only for Aphrodite.
+  
+      If (Status.StationName(1,1) = "24242") Then 
+        SW12(False)
+        Delay(1, 10, sec)
+        SW12(True)
+      EndIf
+    NextScan
+  EndSequence
 EndProg
