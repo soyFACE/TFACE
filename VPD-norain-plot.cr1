@@ -58,13 +58,8 @@ Const SB = 5.67E-8
 Const MODE = -1
 
 ' Declare Public Variables
-Public Kp, Ki, Kd
 Public BattVolt, Pnl_Tmp
 Dim Nmbr_Htrs                ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
-Public Target
-Public T_Diffrns
-Public IxKi_sum
-Public PID_out, PID_lmt,
 Public ScldOut(4)
 Dim T_correct
 Public TadjH
@@ -79,17 +74,26 @@ Public TbodyHC
 Dim TtarHK
 Public TtarHC
 Public Wind
-Dim cons_m, cons_b, 
 Public upper_lim, lower_lim, heatmanset
 Dim Eff, Maxrad
 
+Public Target
+Public T_Diffrns
+
  ' PID CONTROL'
-Dim delta_t            ' Need to set delta_t to execution interval
+ ' Sampling rate'
+Const delta_t = 5            ' Need to set delta_t to execution interval
+Dim cons_m
+Dim cons_b, 
+Public Kp, Ki, Kd
+Public pid_error_integral
+Public PID_out, PID_lmt
 Dim P_error, D_dMVovdt
 Dim Prev_Meas, Prev_Err
 Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
 Dim r_m, h_m, r_b, h_b
 Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
+
 
 ' RATE LIMITING
 Public rateLimiterOn
@@ -163,7 +167,7 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
-  Sample  (1, IxKi_sum, IEEE4, 0)
+  Sample  (1, pid_error_integral, IEEE4, 0)
   Sample  (1, P_error, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4, 0) 
@@ -173,17 +177,17 @@ EndTable
 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
-Sub PIRcontrol
-  ' First set
+Sub pid_control (temp_diff)
   Dim windup_upper_lim, windup_lower_lim
   Dim check As Boolean
+  Dim error, error_deriv  
+  Dim cons_m = 0.03
+  Dim cons_b = 2.5
+
+  error = T_Diffrns	- Target	                   ' PROPORTIONAL
   
-  P_error = T_Diffrns - Target		                   ' PROPORTIONAL
-  Kp_x_P = P_error * Kp
-
-  D_dMVovdt = (T_Diffrns - Prev_Meas) / delta_t    ' DERIVATIVE
-  Kd_x_D = Kd * D_dMVovdt
-
+  error_deriv = (T_Diffrns - Prev_Meas) / delta_t    ' DERIVATIVE
+  pid_error_prev = () *
   Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
   Prev_Err = Prev_Err * delta_t
   Prev_Err = Prev_Err * Ki            ' Next Ki increment
@@ -197,15 +201,14 @@ Sub PIRcontrol
   check = check OR (PID_out >= windup_upper_lim AND Prev_Err > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
   check = check OR (PID_out <= windup_lower_lim AND Prev_Err < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
   If check Then
-    IxKi_sum = IxKi_sum + Prev_Err    
+    pid_error_integral = pid_error_integral + Prev_Err    
   EndIf
 
-  Sum_KpKdKi = Kp_x_P + Kd_x_D + IxKi_sum
-  PID_out = Kp_x_P + Kd_x_D + IxKi_sum
+  PID_out = Kp * error + pid_error_integral + Kd * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
   Prev_Meas = T_Diffrns          ' Shift measured to Prev_meas for next time step
-  Prev_Err = T_Diffrns - Target  ' Store previous error to get ready for next time step
+  Prev_Err = error  ' Store previous error to get ready for next time step
 
 EndSub
 
@@ -265,12 +268,12 @@ Function voltageLimiter(old_voltage, new_voltage)
   ' Otherwise, return the new voltage
   If new_voltage > upperVoltageLimit Then
     rateLimiterOn += 1
-    return upperVoltageLimit
+    Return (upperVoltageLimit)
   Else If new_voltage < lowerVoltageLimit Then
     rateLimiterOn += 1 
-    return lowerVoltageLimit
+    Return (lowerVoltageLimit)
   Else
-    return new_voltage
+    Return (new_voltage)
   EndIf
 EndFunction
 
@@ -295,8 +298,6 @@ BeginProg
   Kp = 50          ' Tuning constants
   Ki = 0.5
   Kd = 5
-  cons_m = 0.03
-  cons_b = 2.5
   upper_lim = 10   ' This is the upper limit of the heaters.  Max is 10.
   lower_lim = 3.5  ' This is the lowest output value of the heaters.  Lowest is 0
   heatmanset = 0   ' This is the manual control option.  -1 means automatic control.  0-10 is
@@ -316,7 +317,7 @@ BeginProg
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
-  Scan (5, Sec, 0, 0)
+  Scan (delta_t, Sec, 0, 0)
 
 
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
@@ -387,7 +388,7 @@ BeginProg
     EndIf
 
     ' Set maximum temperature difference - different for each experiment
-     If T_Diffrns > Target + 2 Then IxKi_sum = 0
+     If T_Diffrns > Target + 2 Then pid_error_integral = 0
      ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt, delta_t)
     oldVoltage = PID_lmt
 
