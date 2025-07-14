@@ -64,7 +64,7 @@ Dim Nmbr_Htrs                ' Number heaters per SDM-CV04 output (1000 W Mor FT
 Public Target
 Public T_Diffrns
 Public IxKi_sum
-Dim PID_out, PID_lmt,
+Public PID_out, PID_lmt,
 Public ScldOut(4)
 Dim T_correct
 Public TadjH
@@ -94,7 +94,6 @@ Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
 ' RATE LIMITING
 Public rateLimiterOn
 Dim rateTimer
-Public rawPIDOutput
 Public clampLenienceInterval
 
 ' VOLTAGE LIMITER PARAMETERS
@@ -126,7 +125,7 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, mV_tpileH, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
   Sample  (1, Target, IEEE4)
-  Average (1, PID_out, IEEE4, 0)
+  Sample  (1, PID_out, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, Pnl_Tmp, IEEE4, 0)
@@ -167,7 +166,6 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, IxKi_sum, IEEE4, 0)
   Sample  (1, P_error, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
-  Average (1, rawPIDOutput, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4, 0) 
 EndTable
 
@@ -178,6 +176,7 @@ EndTable
 Sub PIRcontrol
   ' First set
   Dim windup_upper_lim, windup_lower_lim
+  Dim check As Boolean
   
   P_error = T_Diffrns - Target		                   ' PROPORTIONAL
   Kp_x_P = P_error * Kp
@@ -193,17 +192,18 @@ Sub PIRcontrol
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clampLenienceInterval
   windup_lower_lim = lower_lim - clampLenienceInterval
- 
-  If (rawPIDOutput < windup_upper_lim AND rawPIDOutput > windup_lower_lim) OR _  ' If the PID output is not saturated, add to the integral sum.
-     (rawPIDOutput >= windup_upper_lim AND Prev_err > 0) OR _  ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
-     (rawPIDOutput <= windup_lower_lim AND Prev_err < 0) Then  ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  
+  check = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
+  check = check OR (PID_out >= windup_upper_lim AND Prev_Err > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  check = check OR (PID_out <= windup_lower_lim AND Prev_Err < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  If check Then
     IxKi_sum = IxKi_sum + Prev_Err    
   EndIf
-
 
   Sum_KpKdKi = Kp_x_P + Kd_x_D + IxKi_sum
   PID_out = Kp_x_P + Kd_x_D + IxKi_sum
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
+  PID_out = PID_out * cons_m + cons_b
   Prev_Meas = T_Diffrns          ' Shift measured to Prev_meas for next time step
   Prev_Err = T_Diffrns - Target  ' Store previous error to get ready for next time step
 
@@ -369,9 +369,7 @@ BeginProg
 
     Call PIRcontrol    ' Compute PID control signal
 
-
     PID_lmt = PID_out
-    PID_lmt = PID_lmt * cons_m + cons_b
 
     If PID_lmt < lower_lim Then PID_lmt = lower_lim  ' Set lower limit
     If PID_lmt > upper_lim Then PID_lmt = upper_lim  ' Set upper limit
