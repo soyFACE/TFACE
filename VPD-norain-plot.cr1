@@ -83,12 +83,24 @@ Dim cons_m, cons_b,
 Public upper_lim, lower_lim, heatmanset
 Dim Eff, Maxrad
 
+ ' PID CONTROL'
 Dim delta_t            ' Need to set delta_t to execution interval
 Dim P_error, D_dMVovdt
 Dim Prev_Meas, Prev_Err
 Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
 Dim r_m, h_m, r_b, h_b
 Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
+
+' RATE LIMITING
+Public rateLimiterOn
+Dim rateTimer
+Public rawPIDOutput
+Public clampLenienceInterval
+
+' VOLTAGE LIMITER PARAMETERS
+Public curvature
+Public allowed_rate_at_max_voltage ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
+Public minimum_allowed_rate ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -99,6 +111,8 @@ Public has_ekm_meter As Boolean
 Public is_raining As Boolean = True  ' Start with the assumption that it's raining, and in the first scan it will get the correct value.
 Public is_rain_control As Boolean
 Dim rain_byte_flag
+
+
 
 ' Define Data Tables (these are the final stored programs)
 '  !!!!!!Note to change the name of all the files according to plot.
@@ -149,35 +163,55 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
+  Average (1, IxKi_sum, IEEE4, 0)
+  Average (1, P_error, IEEE4, 0)
+  Average (1, PID_lmt, IEEE4, 0)
+  Average (1, rawPIDOutput, IEEE4, 0)
+  Sample  (1, rateLimiterOn, IEEE4, 0) 
 EndTable
+
 
 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 Sub PIRcontrol
-  ' First set
-  P_error = T_Diffrns - Target                    ' PROPORTIONAL
+  'first set
+  Dim windup_upper_lim, windup_lower_lim
+  
+  P_error = T_Diffrns - Target		                   'PROPORTIONAL
   Kp_x_P = P_error * Kp
 
-  D_dMVovdt = (T_Diffrns - Prev_Meas) / delta_t   ' DERIVATIVE
-  Kd_x_D = Kd * D_dMVovdt
+  D_dMVovdt = (T_Diffrns - Prev_Meas)/delta_t    'DERIVATIVE
+  Kd_x_D = Kd*D_dMVovdt
 
   Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
   Prev_Err = Prev_Err * delta_t
-  Prev_Err = Prev_Err * Ki            ' Next Ki increment
-  IxKi_sum = IxKi_sum + Prev_Err    ' I = integral of error
-  Sum_KpKdKi = Kp_x_P + Kd_x_D + IxKi_sum
+  Prev_Err= Prev_Err * Ki            'next Ki increment
+  
+  ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
+  ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
+  windup_upper_lim = upper_lim + clampLenienceInterval
+  windup_lower_lim = lower_lim - clampLenienceInterval
+  ' Since every condition does the same thing, the following would be more sensible if the three states that were combined using OR into a single statement. 
+  If (rawPIDOutput < windup_upper_lim AND rawPIDOutput > windup_lower_lim) OR _ ' If the PID output is not saturated, add to the integral sum.
+     (rawPIDOutput >= windup_upper_lim AND Prev_err > 0) OR _ ' Positive error means cooling, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+     (rawPIDOutput <= windup_lower_lim AND Prev_err < 0) Then ' Negative error means heating, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+    IxKi_sum = IxKi_sum + Prev_Err    
+  EndIf
+
+
+  Sum_KpKdKi=Kp_x_P + Kd_x_D + IxKi_sum
   PID_out = Kp_x_P + Kd_x_D + IxKi_sum
-  PID_out = PID_out * MODE         ' Change sign according to +/- mode
-  Prev_Meas = T_Diffrns            ' Shift measured to Prev_meas for next time step
-  Prev_Err = T_Diffrns - Target    ' Store previous error to get ready for next time step
+  PID_out = PID_out * MODE        'change sign according to +/- mode
+  Prev_Meas = T_Diffrns          ' shift measured to Prev_meas for next time step
+  Prev_Err = T_Diffrns - Target 'Store previous error to get ready for next time step
 
 EndSub
 
 
 '  Adjust the apparent temperature in the heated plot for radiation reflected
 '  from the heaters.
-Sub CorrectRef
+Sub  CorrectRef
   ' Assume: fraction of thermal energy emitted by heater in the 8 to 14 um band
   '        sensed by Apogee IRR-P is 0.14 for heater at 600 degrees C.
   '        Multiply by 0.9 for window transmittance > 0.13.
@@ -186,9 +220,8 @@ Sub CorrectRef
   '        sensed by Apogee IRR-P5 is 0.37 as per canopy at 20 degrees C.
   '        Multipy by 0.9 for window transmittance > 0.33.
 
-  ' Assume: emissivity of plant canopy = 0.98
-
-  Eff = 10 + 25 * EXP(-0.17 * Wind)  ' Compute efficiency of heater system (%) from wind (m/s)
+  'Assume: emissivity of plant canopy = 0.98
+  Eff = 10 + 25*EXP(-0.17*Wind)  'compute efficiency of heater system (%) from wind (m/s)
   Maxrad = Nmbr_Htrs * 1000 * (Eff / 100) / 7.07 ' Compute max down rad over 7.07 m^2 plot
   Rheater = Maxrad * (PID_CR / 10)^2 ' Scale in proportion to the square of the
                                      ' last value of PID control, so that have full
@@ -196,14 +229,49 @@ Sub CorrectRef
                                      ' when heaters off.
   Rreflect = Rheater * (1 - 0.98) * 0.13              ' Calculate radiation from heater reflected by canopy
                                                       ' in 8-14 um band.
-  R_IRT = 0.33 * SB * (T_correct + 273.15)^4          ' Calculate amount of energy sensed by IRT
-  Radjust  = R_IRT - Rreflect                         ' Subtract the rediation from the heater
+  R_IRT = 0.33*SB*(T_correct+273.15)^4 'calculate amount of energy sensed by IRT
+  Radjust  = R_IRT-Rreflect  'subtract the rediation from the heater
   Th_Adjust = ((Radjust / (SB * 0.33))^0.25) - 273.15 ' Calculate temperature from the radiation
 
-  ' Note: No adjustment for canopy emmissivity and reflected sky radiation are being
-  ' because it is assumed that these will be the same in the reference plot.
+  'Note: no adjustment for canopy emmissivity and reflected sky radiation are being
+  'because it is assumed that these will be the same in the reference plot.
 EndSub
 
+
+
+Function voltageLimiter(old_voltage, new_voltage, delta_t) 
+' Calulate the maximum voltage increase.
+  Dim voltageLimitRate, upperVoltageLimit, lowerVoltageLimit
+  Dim max_voltage
+  Dim numerator 
+  Dim denominator
+
+  curvature = 1.82 
+  max_voltage = 10
+  allowed_rate_at_max_voltage = 0.45
+  minimum_allowed_rate = 0.01
+
+  numerator = PWR(curvature, old_voltage) 
+  denominator = PWR(curvature, upper_lim) 
+  denominator = denominator * allowed_rate_at_max_voltage 
+  voltageLimitRate = numerator / denominator + minimum_allowed_rate
+  
+  upperVoltageLimit = old_voltage + voltageLimitRate
+  lowerVoltageLimit = old_voltage - voltageLimitRate
+
+  ' If the new voltage is greater than the upper limit, return the upper limit
+  ' If the new voltage is less than the lower limit, return the lower limit
+  ' Otherwise, return the new voltage
+  If new_voltage > upperVoltageLimit Then
+    rateLimiterOn += 1
+    return upperVoltageLimit
+  Else If new_voltage < lowerVoltageLimit Then
+    rateLimiterOn += 1 
+    return lowerVoltageLimit
+  Else
+    return new_voltage
+  EndIf
+EndFunction
 
 
 '****************************************************************************************
