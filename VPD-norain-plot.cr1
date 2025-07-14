@@ -229,12 +229,12 @@ Sub CorrectRef
                                      ' when heaters off.
   Rreflect = Rheater * (1 - 0.98) * 0.13              ' Calculate radiation from heater reflected by canopy
                                                       ' in 8-14 um band.
-  R_IRT = 0.33 * SB * (T_correct + 273.15)^4  ' Calculate amount of energy sensed by IRT
-  Radjust = R_IRT - Rreflect  ' Subtract the radiation from the heater
+  R_IRT = 0.33 * SB * (T_correct + 273.15)^4          ' Calculate amount of energy sensed by IRT
+  Radjust = R_IRT - Rreflect                          ' Subtract the radiation from the heater
   Th_Adjust = ((Radjust / (SB * 0.33))^0.25) - 273.15 ' Calculate temperature from the radiation
 
-  'Note: no adjustment for canopy emmissivity and reflected sky radiation are being
-  'because it is assumed that these will be the same in the reference plot.
+  ' Note: No adjustment for canopy emmissivity and reflected sky radiation are being
+  ' because it is assumed that these will be the same in the reference plot.
 EndSub
 
 
@@ -305,7 +305,7 @@ BeginProg
   oldVoltage = lower_lim
   rateTimer = 0 
   clampLenienceInterval = 0.5
-  PID_lmt = 1 ' The only reason this is here is because it is used in the CorrectRef subroutine before it is set. This will only matter before the first scan.
+  PID_lmt = 1 ' Set the initial value of PID_lmt.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
   If (Status.StationName(1,1) = "24242") Then 
