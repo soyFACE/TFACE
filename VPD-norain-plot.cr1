@@ -302,6 +302,10 @@ BeginProg
                    ' the scaled output from 0 to 10.  Anything other then -1 to 10 will create
                    ' a time-space anomaly which would destroy the universe.  Maybe.
   delta_t = 5      ' Execution interval.  This must match with the 'Scan' interval below.
+  oldVoltage = lower_lim
+  rateTimer = 0 
+  clampLenienceInterval = 0.5
+  PID_lmt = 1 ' The only reason this is here is because it is used in the CorrectRef subroutine before it is set. This will only matter before the first scan.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
   If (Status.StationName(1,1) = "24242") Then 
@@ -386,14 +390,17 @@ BeginProg
      If T_Diffrns > Target + 2 Then IxKi_sum = 0
 
 
-    ScldOut(1) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(2) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(3) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(4) = PID_lmt * 1000   ' Scale from volts to mV
-
+    ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
+    
     '***********************************************************
     SDMCVO4 (ScldOut(), 4, 0, 10)  ' Send instruction to SDM-CV04s (mV, reps, SDMaddress, volts).
     '**********************************************************
+    rateTimer += 5 
+    If rateTimer = 900 Then
+      rateLimiterOn = 0 
+      rateTimer = 0
+    EndIf
+
 
     ' This is the rain detector code.  
     If is_rain_control Then
