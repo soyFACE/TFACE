@@ -389,7 +389,8 @@ BeginProg
 
     ' Set maximum temperature difference - different for each experiment
      If T_Diffrns > Target + 2 Then IxKi_sum = 0
-
+     ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt, delta_t)
+    oldVoltage = PID_lmt
 
     ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
     
