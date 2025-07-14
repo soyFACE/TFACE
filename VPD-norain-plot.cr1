@@ -101,6 +101,7 @@ Public clampLenienceInterval
 Public curvature
 Public allowed_rate_at_max_voltage ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
 Public minimum_allowed_rate ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
+Dim oldVoltage
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -239,7 +240,7 @@ EndSub
 
 
 
-Function voltageLimiter(old_voltage, new_voltage, delta_t) 
+Function voltageLimiter(old_voltage, new_voltage) 
 ' Calulate the maximum voltage increase.
   Dim voltageLimitRate, upperVoltageLimit, lowerVoltageLimit
   Dim max_voltage
