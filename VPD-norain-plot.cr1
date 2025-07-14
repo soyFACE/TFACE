@@ -57,8 +57,13 @@ Const piov2 = 1.5708
 Const SB = 5.67E-8
 Const MODE = -1
 
-' Declare Public Variables
+' Variable Declarations
+' Datalogger internals
 Public BattVolt, Pnl_Tmp
+' For wind velocity measurements
+Public Wind
+
+' Heater IRR and control variables
 Dim Nmbr_Htrs                ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 Public ScldOut(4)
 Dim T_correct
@@ -73,27 +78,24 @@ Dim TbodyHK
 Public TbodyHC
 Dim TtarHK
 Public TtarHC
-Public Wind
 Public upper_lim, lower_lim, heatmanset
 Dim Eff, Maxrad
+Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
+Dim r_m, h_m, r_b, h_b
 
-Public Target
+
+Public Target 
 Public T_Diffrns
 
  ' PID CONTROL'
  ' Sampling rate'
 Const delta_t = 5            ' Need to set delta_t to execution interval
+Public smooth_time_const
 Dim cons_m
-Dim cons_b, 
+Dim cons_b 
 Public Kp, Ki, Kd
-Public pid_error_integral
 Public PID_out, PID_lmt
-Dim P_error, D_dMVovdt
-Dim Prev_Meas, Prev_Err
-Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
-Dim r_m, h_m, r_b, h_b
-Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
-
+Public pid_error_smooth
 
 ' RATE LIMITING
 Public rateLimiterOn
@@ -168,7 +170,8 @@ DataTable (Control, True, -1)       ' Change based on plot
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
   Sample  (1, pid_error_integral, IEEE4, 0)
-  Sample  (1, P_error, IEEE4, 0)
+  Sample  (1, error, IEEE4, 0)
+  Sample  (1, pid_error_smooth, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4, 0) 
 EndTable
@@ -180,17 +183,25 @@ EndTable
 Sub pid_control (temp_diff)
   Dim windup_upper_lim, windup_lower_lim
   Dim check As Boolean
-  Dim error, error_deriv  
+  Dim error, error_deriv, error_smooth_prev, integrand 
   Dim cons_m = 0.03
   Dim cons_b = 2.5
+  Dim alpha
 
+
+  ' ERROR TERM
   error = T_Diffrns	- Target	                   ' PROPORTIONAL
   
-  error_deriv = (T_Diffrns - Prev_Meas) / delta_t    ' DERIVATIVE
-  pid_error_prev = () *
-  Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
-  Prev_Err = Prev_Err * delta_t
-  Prev_Err = Prev_Err * Ki            ' Next Ki increment
+  ' EXPONETIAL WEIGHTED SMOOTHING
+  error_smooth_prev = pid_error_smooth
+  alpha = 1 - EXP(- delta_t / smooth_time_const) ' sampling rate adjusted coefficient 
+  pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth 
+  
+  ' DERIVATIVE 
+  error_deriv = (pid_error_smooth - error_smooth_prev) / delta_t  ' backward finite diff
+  
+  ' INTEGRAL
+  integrand = (delta_t / 2) * (pid_error_smooth + error_smooth_prev)   ' Trapezoid rule
   
   ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
@@ -198,18 +209,16 @@ Sub pid_control (temp_diff)
   windup_lower_lim = lower_lim - clampLenienceInterval
   
   check = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
-  check = check OR (PID_out >= windup_upper_lim AND Prev_Err > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
-  check = check OR (PID_out <= windup_lower_lim AND Prev_Err < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  check = check OR (PID_out >= windup_upper_lim AND integrand > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  check = check OR (PID_out <= windup_lower_lim AND integrand < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
   If check Then
-    pid_error_integral = pid_error_integral + Prev_Err    
+    pid_error_integral += integrand    
   EndIf
 
-  PID_out = Kp * error + pid_error_integral + Kd * error_deriv
+  PID_out = Kp * error + Ki * pid_error_integral + Kd * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
-  Prev_Meas = T_Diffrns          ' Shift measured to Prev_meas for next time step
-  Prev_Err = error  ' Store previous error to get ready for next time step
-
+  
 EndSub
 
 
@@ -298,12 +307,12 @@ BeginProg
   Kp = 50          ' Tuning constants
   Ki = 0.5
   Kd = 5
+  smooth_time_const = 30   ' seconds
   upper_lim = 10   ' This is the upper limit of the heaters.  Max is 10.
   lower_lim = 3.5  ' This is the lowest output value of the heaters.  Lowest is 0
   heatmanset = 0   ' This is the manual control option.  -1 means automatic control.  0-10 is
                    ' the scaled output from 0 to 10.  Anything other then -1 to 10 will create
                    ' a time-space anomaly which would destroy the universe.  Maybe.
-  delta_t = 5      ' Execution interval.  This must match with the 'Scan' interval below.
   oldVoltage = lower_lim
   rateTimer = 0 
   clampLenienceInterval = 0.5
@@ -339,7 +348,7 @@ BeginProg
 
     ' Calculation of target temperature
     TbodyRK = TbodyRC + 273.15
-    TtarRK = (TbodyRK^4 + r_m *mV_tpileR + r_b)^0.25
+    TtarRK = (TbodyRK^4 + r_m * mV_tpileR + r_b)^0.25
     TtarRC = TtarRK - 273.15
 
     ' For Heated Plots
@@ -368,7 +377,7 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
 
-    Call PIRcontrol    ' Compute PID control signal
+    Call pid_control    ' Compute PID control signal
 
     PID_lmt = PID_out
 
@@ -389,7 +398,7 @@ BeginProg
 
     ' Set maximum temperature difference - different for each experiment
      If T_Diffrns > Target + 2 Then pid_error_integral = 0
-     ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt, delta_t)
+     ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt)
     oldVoltage = PID_lmt
 
     ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
