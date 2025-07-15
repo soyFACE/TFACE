@@ -307,7 +307,9 @@ BeginProg
   Kp = 50          ' Tuning constants
   Ki = 0.5
   Kd = 5
-  smooth_time_const = 30   ' seconds
+  cons_m = 0.03
+  cons_b = 2.5
+  smooth_time_const = 30 'seconds'
   upper_lim = 10   ' This is the upper limit of the heaters.  Max is 10.
   lower_lim = 3.5  ' This is the lowest output value of the heaters.  Lowest is 0
   heatmanset = 0   ' This is the manual control option.  -1 means automatic control.  0-10 is
