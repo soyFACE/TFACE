@@ -191,7 +191,7 @@ Function PID_control
   ' First set
   Dim windup_upper_lim, windup_lower_lim
   Dim onlyIntegrateIf As Boolean
-  Public error, error_deriv, error_prev, integrand 
+  Public error, error_deriv, error_prev, delta_integral 
   Dim PID_out
   Dim alpha
 
@@ -199,7 +199,7 @@ Function PID_control
   ' ERROR TERM
   error = T_Diffrns	- Target	                   ' PROPORTIONAL
   
-  ' EXPONETIAL WEIGHTED SMOOTHING
+  ' EXPONENTIAL WEIGHTED SMOOTHING
   error_prev = pid_error_smooth
   alpha = 1 - EXP(- delta_t / smoothing_time) ' sampling rate adjusted coefficient 
   pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth 
@@ -208,7 +208,7 @@ Function PID_control
   error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
   
   ' INTEGRAL
-  integrand = (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule
+  delta_integral = (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule
   
   ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
@@ -216,10 +216,10 @@ Function PID_control
   windup_lower_lim = lower_lim - clampLenienceInterval
 
   onlyIntegrateIf = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
-  onlyIntegrateIf = onlyIntegrateIf OR (PID_out >= windup_upper_lim AND integrand > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
-  onlyIntegrateIf = onlyIntegrateIf OR (PID_out <= windup_lower_lim AND integrand < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  onlyIntegrateIf = onlyIntegrateIf OR (PID_out >= windup_upper_lim AND delta_integral > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  onlyIntegrateIf = onlyIntegrateIf OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
   If onlyIntegrateIf Then
-    pid_error_integral += integrand    
+    pid_error_integral += delta_integral    
   EndIf
 
   PID_out = Kp * pid_error_smooth + Ki * pid_error_integral + Kd * error_deriv
@@ -264,7 +264,7 @@ Function CorrectRef(PID_CR, T_correct)
 EndFunction
 
 Function max_delta_v(old_voltage) 
-' Calulate the maximum voltage increase.
+' Calculate the maximum voltage increase.
   Dim voltageLimitRate
   Dim numerator 
   
