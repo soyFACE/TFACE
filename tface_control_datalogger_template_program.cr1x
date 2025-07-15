@@ -311,7 +311,7 @@ BeginProg
   is_rain_control = (Status.StationName(1,1) = "26164")
   If (Status.StationName(1,1) = "24242") Then 
     has_ekm_meter = True ' Aphrodite'
-    SW12(1)
+    SW12(SW12_1, True, 1)
   EndIf
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
@@ -321,14 +321,14 @@ BeginProg
 
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
-    PulseCount (Wind, 1, 1, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
+    PulseCount (Wind, 1, P1, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
                                                 ' can be used to determine heater efficiency.
 
     ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
 
     ' *******T-FACE***********
     ' Measure thermopile voltages of T-FACE Reference IRTs
-    VoltDiff(mV_tpileR, 1, mV200, 1, True , 0, _60Hz, 1.0, 0) ' Diff channel 1
+    VoltDiff(mV_tpileR, 1, mV200C, 1, True , 0, _60Hz, 1.0, 0) ' Diff channel 1
     ' Measure ratios Vx/Vb of body thermistors of Reference IRTs
     Therm109(TbodyRC, 1, 5, Vx1, 0, _60Hz, 1.0, 0) ' SE channel 5
 
@@ -411,7 +411,7 @@ BeginProg
 
     ' Read EKM Omnimeter pulse count and it convert to KW*H.
     ' I know the conversion can be done in one step with PulseCount() but want both the count and the conversion.
-    PulseCount(ekmMeterPulseCount, 1, 2, 1, 0, 1, 0)
+    PulseCount(ekmMeterPulseCount, 1, P2, 1, 0, 1, 0)
     If has_ekm_meter Then 
       ekmMeterKWh = ekmMeterPulseCount / 800
     EndIf
@@ -428,9 +428,9 @@ BeginProg
       ' only for Aphrodite, and only from 5 am to 8 pm.
   
       If (Status.StationName(1,1) = "24242") AND TimeIsBetween(5, 20, 24, Hr) Then 
-        SW12(False)
+        SW12(SW12_1, False, 1)
         Delay(1, 10, sec)
-        SW12(True)
+        SW12(SW12_1, True, 1)
       EndIf
     NextScan
   EndSequence
