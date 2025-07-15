@@ -372,7 +372,7 @@ BeginProg
       ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
       upper_lim = PID_lmt + max_delta_v(PID_lmt)
       
-      lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
+      'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
       If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
         Call Clamp(upper_lim, min_out_volt, 3.5) ' minimum of 3.5 and upper_lim
       EndIf
