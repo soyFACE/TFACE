@@ -64,7 +64,7 @@ Dim Nmbr_Htrs                ' Number heaters per SDM-CV04 output (1000 W Mor FT
 Public Target
 Public T_Diffrns
 Public IxKi_sum
-Dim PID_out, PID_lmt,
+Public PID_out, PID_lmt,
 Public ScldOut(4)
 Dim T_correct
 Public TadjH
@@ -83,12 +83,24 @@ Dim cons_m, cons_b,
 Public upper_lim, lower_lim, heatmanset
 Dim Eff, Maxrad
 
+ ' PID CONTROL'
 Dim delta_t            ' Need to set delta_t to execution interval
 Dim P_error, D_dMVovdt
 Dim Prev_Meas, Prev_Err
 Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
 Dim r_m, h_m, r_b, h_b
 Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
+
+' RATE LIMITING
+Public rateLimiterOn
+Dim rateTimer
+Public clampLenienceInterval
+
+' VOLTAGE LIMITER PARAMETERS
+Public curvature
+Public allowed_rate_at_max_voltage ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
+Public minimum_allowed_rate ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
+Dim oldVoltage
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -99,6 +111,8 @@ Public has_ekm_meter As Boolean
 Public is_raining As Boolean = True  ' Start with the assumption that it's raining, and in the first scan it will get the correct value.
 Public is_rain_control As Boolean
 Dim rain_byte_flag
+
+
 
 ' Define Data Tables (these are the final stored programs)
 '  !!!!!!Note to change the name of all the files according to plot.
@@ -111,7 +125,7 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, mV_tpileH, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
   Sample  (1, Target, IEEE4)
-  Average (1, PID_out, IEEE4, 0)
+  Sample  (1, PID_out, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, Pnl_Tmp, IEEE4, 0)
@@ -149,28 +163,49 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
+  Sample  (1, IxKi_sum, IEEE4, 0)
+  Sample  (1, P_error, IEEE4, 0)
+  Average (1, PID_lmt, IEEE4, 0)
+  Sample  (1, rateLimiterOn, IEEE4, 0) 
 EndTable
+
 
 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 Sub PIRcontrol
   ' First set
-  P_error = T_Diffrns - Target                    ' PROPORTIONAL
+  Dim windup_upper_lim, windup_lower_lim
+  Dim check As Boolean
+  
+  P_error = T_Diffrns - Target		                   ' PROPORTIONAL
   Kp_x_P = P_error * Kp
 
-  D_dMVovdt = (T_Diffrns - Prev_Meas) / delta_t   ' DERIVATIVE
+  D_dMVovdt = (T_Diffrns - Prev_Meas) / delta_t    ' DERIVATIVE
   Kd_x_D = Kd * D_dMVovdt
 
   Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
   Prev_Err = Prev_Err * delta_t
   Prev_Err = Prev_Err * Ki            ' Next Ki increment
-  IxKi_sum = IxKi_sum + Prev_Err    ' I = integral of error
+  
+  ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
+  ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
+  windup_upper_lim = upper_lim + clampLenienceInterval
+  windup_lower_lim = lower_lim - clampLenienceInterval
+  
+  check = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
+  check = check OR (PID_out >= windup_upper_lim AND Prev_Err > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  check = check OR (PID_out <= windup_lower_lim AND Prev_Err < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  If check Then
+    IxKi_sum = IxKi_sum + Prev_Err    
+  EndIf
+
   Sum_KpKdKi = Kp_x_P + Kd_x_D + IxKi_sum
   PID_out = Kp_x_P + Kd_x_D + IxKi_sum
-  PID_out = PID_out * MODE         ' Change sign according to +/- mode
-  Prev_Meas = T_Diffrns            ' Shift measured to Prev_meas for next time step
-  Prev_Err = T_Diffrns - Target    ' Store previous error to get ready for next time step
+  PID_out = PID_out * MODE       ' Change sign according to +/- mode
+  PID_out = PID_out * cons_m + cons_b
+  Prev_Meas = T_Diffrns          ' Shift measured to Prev_meas for next time step
+  Prev_Err = T_Diffrns - Target  ' Store previous error to get ready for next time step
 
 EndSub
 
@@ -187,7 +222,6 @@ Sub CorrectRef
   '        Multipy by 0.9 for window transmittance > 0.33.
 
   ' Assume: emissivity of plant canopy = 0.98
-
   Eff = 10 + 25 * EXP(-0.17 * Wind)  ' Compute efficiency of heater system (%) from wind (m/s)
   Maxrad = Nmbr_Htrs * 1000 * (Eff / 100) / 7.07 ' Compute max down rad over 7.07 m^2 plot
   Rheater = Maxrad * (PID_CR / 10)^2 ' Scale in proportion to the square of the
@@ -197,7 +231,7 @@ Sub CorrectRef
   Rreflect = Rheater * (1 - 0.98) * 0.13              ' Calculate radiation from heater reflected by canopy
                                                       ' in 8-14 um band.
   R_IRT = 0.33 * SB * (T_correct + 273.15)^4          ' Calculate amount of energy sensed by IRT
-  Radjust  = R_IRT - Rreflect                         ' Subtract the rediation from the heater
+  Radjust = R_IRT - Rreflect                          ' Subtract the radiation from the heater
   Th_Adjust = ((Radjust / (SB * 0.33))^0.25) - 273.15 ' Calculate temperature from the radiation
 
   ' Note: No adjustment for canopy emmissivity and reflected sky radiation are being
@@ -206,9 +240,45 @@ EndSub
 
 
 
+Function voltageLimiter(old_voltage, new_voltage) 
+' Calulate the maximum voltage increase.
+  Dim voltageLimitRate, upperVoltageLimit, lowerVoltageLimit
+  Dim max_voltage
+  Dim numerator 
+  Dim denominator
+
+  curvature = 1.82 
+  max_voltage = 10
+  allowed_rate_at_max_voltage = 0.45
+  minimum_allowed_rate = 0.01
+
+  numerator = PWR(curvature, old_voltage) 
+  denominator = PWR(curvature, upper_lim) 
+  denominator = denominator * allowed_rate_at_max_voltage 
+  voltageLimitRate = numerator / denominator + minimum_allowed_rate
+  
+  upperVoltageLimit = old_voltage + voltageLimitRate
+  lowerVoltageLimit = old_voltage - voltageLimitRate
+
+  ' If the new voltage is greater than the upper limit, return the upper limit
+  ' If the new voltage is less than the lower limit, return the lower limit
+  ' Otherwise, return the new voltage
+  If new_voltage > upperVoltageLimit Then
+    rateLimiterOn += 1
+    return upperVoltageLimit
+  Else If new_voltage < lowerVoltageLimit Then
+    rateLimiterOn += 1 
+    return lowerVoltageLimit
+  Else
+    return new_voltage
+  EndIf
+EndFunction
+
+
 '****************************************************************************************
 ' Main Program
 BeginProg
+
     Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
         CallTable irr_params
         ExitScan
@@ -226,16 +296,23 @@ BeginProg
   Ki = 0.5
   Kd = 5
   cons_m = 0.03
-  cons_b = 2.5
+  cons_b = 4
   upper_lim = 10   ' This is the upper limit of the heaters.  Max is 10.
   lower_lim = 3.5  ' This is the lowest output value of the heaters.  Lowest is 0
   heatmanset = 0   ' This is the manual control option.  -1 means automatic control.  0-10 is
                    ' the scaled output from 0 to 10.  Anything other then -1 to 10 will create
                    ' a time-space anomaly which would destroy the universe.  Maybe.
   delta_t = 5      ' Execution interval.  This must match with the 'Scan' interval below.
+  oldVoltage = lower_lim
+  rateTimer = 0 
+  clampLenienceInterval = 0.5
+  PID_lmt = 1 ' Set the initial value of PID_lmt.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
-  has_ekm_meter = (Status.StationName(1,1) = "24242") ' Aphrodite'
+  If (Status.StationName(1,1) = "24242") Then 
+    has_ekm_meter = True ' Aphrodite'
+    SW12(1)
+  EndIf
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
@@ -292,9 +369,7 @@ BeginProg
 
     Call PIRcontrol    ' Compute PID control signal
 
-
     PID_lmt = PID_out
-    PID_lmt = PID_lmt * cons_m + cons_b
 
     If PID_lmt < lower_lim Then PID_lmt = lower_lim  ' Set lower limit
     If PID_lmt > upper_lim Then PID_lmt = upper_lim  ' Set upper limit
@@ -313,16 +388,20 @@ BeginProg
 
     ' Set maximum temperature difference - different for each experiment
      If T_Diffrns > Target + 2 Then IxKi_sum = 0
+     ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt, delta_t)
+    oldVoltage = PID_lmt
 
-
-    ScldOut(1) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(2) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(3) = PID_lmt * 1000   ' Scale from volts to mV
-    ScldOut(4) = PID_lmt * 1000   ' Scale from volts to mV
-
+    ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
+    
     '***********************************************************
     SDMCVO4 (ScldOut(), 4, 0, 10)  ' Send instruction to SDM-CV04s (mV, reps, SDMaddress, volts).
     '**********************************************************
+    rateTimer += 5 
+    If rateTimer = 900 Then
+      rateLimiterOn = 0 
+      rateTimer = 0
+    EndIf
+
 
     ' This is the rain detector code.  
     If is_rain_control Then
