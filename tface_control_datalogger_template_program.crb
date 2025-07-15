@@ -367,23 +367,22 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
 
-
+    upper_lim = PID_lmt + max_delta_v(PID_lmt)
+    'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
+    If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
+      Call Clamp(upper_lim, min_out_volt, 3.5) ' minimum of 3.5 and upper_lim
+    EndIf
+      
     If heatmanset < 0 Then
-      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
-      upper_lim = PID_lmt + max_delta_v(PID_lmt)
-      
-      'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
-      If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
-        Call Clamp(upper_lim, min_out_volt, 3.5) ' minimum of 3.5 and upper_lim
-      EndIf
-      
+      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.  
       PID_lmt = PID_control()    ' Compute PID control signal
-  
     Else
       ' MANUAL OVERRIDE
       PID_lmt = heatmanset
     EndIf
-
+    
+    ' Apply max delta voltage, raing limit, etc.
+    Call Clamp(PID_lmt, lower_lim, upper_lim)
     ' FOR SAFETY; output is always clamped to [0, 10] volt range. 
     Call Clamp(PID_lmt, min_out_volt, max_out_volt)
     ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
