@@ -291,7 +291,7 @@ Function voltageLimiter(old_voltage, new_voltage)
 EndFunction
 
 Sub switch_12_volt(state)
-#If LoggerType = CR1000X
+#If LoggerType=CR1000X
   SW12(sw12_chan, state, 1)
 #ElseIf LoggerType=CR1000
   SW12(state)
