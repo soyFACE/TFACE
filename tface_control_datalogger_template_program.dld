@@ -33,11 +33,11 @@
 
 ' T-FACE Reference plot SN 1234
 
-Const r_coef(6) = {64256.9,	7623490,	1399260000,	4442.54,	169126,	-3313600}
+Dim r_coef(6) = {64256.9,	7623490,	1399260000,	4442.54,	169126,	-3313600}
 Const r_sn  = 6174
 
 ' T-FACE Heated plot SN 6184
-Const h_coef(6) = {70034.5,	8157240,	1483180000,	6506.89,	127151,	-7267410}
+Dim h_coef(6) = {70034.5,	8157240,	1483180000,	6506.89,	127151,	-7267410}
 Const h_sn  = 6190
 
 ' Below are constants for the control of the heater outputs.
@@ -161,7 +161,11 @@ Sub Clamp(x, lwr, upr)
 EndSub
 
 Function minimum(x, y)
-  If x <= y Then Return (x) Else Return (y) EndIf
+  If x <= y Then 
+    Return (x) 
+  Else 
+    Return (y) 
+  EndIf
 EndFunction 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
