@@ -349,10 +349,10 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
 
-    upper_lim = min(max_volt_limit(PID_lmt), max_out_volt)
+    upper_lim = get_min(max_volt_limit(PID_lmt), max_out_volt)
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
-      upper_lim = min(upper_lim, 3.5) 
+      upper_lim = get_min(upper_lim, 3.5) 
     EndIf
       
     If heatmanset < 0 Then
