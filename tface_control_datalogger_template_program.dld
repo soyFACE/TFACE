@@ -33,23 +33,18 @@
 
 ' T-FACE Reference plot SN 1234
 
-Const r_mC2 = 133757
-Const r_mC1 = 11739300
-Const r_mC0 = 2138210000
-Const r_bC2 = 5021.86
-Const r_bC1 = 366816
-Const r_bC0 = -35064200
-Const r_sn  = 1234
+Const r_coef(6) = {64256.9,	7623490,	1399260000,	4442.54,	169126,	-3313600}
+Const r_sn  = 6174
 
 ' T-FACE Heated plot SN 6184
-
+Const h_coef(6) = {70034.5,	8157240,	1483180000,	6506.89,	127151,	-7267410}
 Const h_mC2 = 66863.6
 Const h_mC1 = 7707660
 Const h_mC0 = 1377880000
 Const h_bC2 = 7400.48
 Const h_bC1 = 139180
 Const h_bC0 = -3439490
-Const h_sn  = 6184
+Const h_sn  = 6190
 
 ' Below are constants for the control of the heater outputs.
 Const twopi = 6.283185
@@ -144,19 +139,9 @@ EndTable
 
 DataTable(irr_params, True, -1)
   ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0) 
-  Sample(1, r_mC2, IEEE4)
-  Sample(1, r_mC1, IEEE4)
-  Sample(1, r_mC0, IEEE4)
-  Sample(1, r_bC2, IEEE4)
-  Sample(1, r_bC1, IEEE4)
-  Sample(1, r_bC0, IEEE4)
+  Sample(6, r_coef, IEEE4)
   Sample(1, r_sn,  UINT2)
-  Sample(1, h_mC2, IEEE4)
-  Sample(1, h_mC1, IEEE4)
-  Sample(1, h_mC0, IEEE4)
-  Sample(1, h_bC2, IEEE4)
-  Sample(1, h_bC1, IEEE4)
-  Sample(1, h_bC0, IEEE4)
+  Sample(6, h_coef, IEEE4)
   Sample(1, h_sn,  UINT2)
 EndTable
 
@@ -335,8 +320,8 @@ BeginProg
     Therm109(TbodyRC, 1, 5, Vx1, 0, _60Hz, 1.0, 0) ' SE channel 5
 
     ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
-    r_m = r_mC2 * TbodyRC^2 + r_mC1 * TbodyRC + r_mC0
-    r_b = r_bC2 * TbodyRC^2 + r_bC1 * TbodyRC + r_bC0
+    r_m = r_coef(1) * TbodyRC^2 + r_coef(2) * TbodyRC + r_coef(3)
+    r_b = r_coef(4) * TbodyRC^2 + r_coef(5) * TbodyRC + r_coef(6)
 
     ' Calculation of target temperature
     TbodyRK = TbodyRC + 273.15
@@ -349,8 +334,8 @@ BeginProg
     ' Measure ratios Vx/Vb of body thermistors of Heated IRTs
     Therm109 (TbodyHC, 1, 6, Vx1, 0, _60Hz, 1.0, 0)
     ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
-    h_m = h_mC2 * TbodyHC^2 + h_mC1 * TbodyHC + h_mC0
-    h_b = h_bC2 * TbodyHC^2 + h_bC1 * TbodyHC + h_bC0
+    h_m = h_coef(1) * TbodyHC^2 + h_coef(2) * TbodyHC + h_coef(3)
+    h_b = h_coef(4) * TbodyHC^2 + h_coef(5) * TbodyHC + h_coef(6)
 
     ' Calculation of target temperature
     TbodyHK = TbodyHC + 273.15
