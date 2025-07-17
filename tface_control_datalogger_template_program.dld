@@ -58,16 +58,16 @@ Const SB = 5.67E-8
 Const MODE = -1
 
 #If LoggerType = CR1000X
-    Const VoltRange=mV200C
-    Const wind_pulse_port=P1
-    Const ekm_meter_port=P2
-    Const sw12_chan = SW12_1
-    Const APHRODITE = "24242"
-#ElseIf LoggerType=CR1000
-    Const VoltRange=mV2_5C
-    Const wind_pulse_port=1
-    Const ekm_meter_port = 2
-    Const APHRODITE = "24242" 
+  Const VoltRange=mV200C
+  Const wind_pulse_port=P1
+  Const ekm_meter_port=P2
+  Const sw12_chan = SW12_1
+  Const APHRODITE = "24242"
+#ElseIf LoggerType = CR1000
+  Const VoltRange=mV2_5C
+  Const wind_pulse_port=1
+  Const ekm_meter_port = 2
+  Const APHRODITE = "24242" 
 #EndIf
 
 
@@ -323,7 +323,7 @@ BeginProg
 
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
-    PulseCount (Wind, 1, P1, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
+    PulseCount (Wind, 1, wind_pulse_port, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
                                                 ' can be used to determine heater efficiency.
 
     ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
