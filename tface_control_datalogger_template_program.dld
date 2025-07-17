@@ -38,17 +38,11 @@ Const r_sn  = 6174
 
 ' T-FACE Heated plot SN 6184
 Const h_coef(6) = {70034.5,	8157240,	1483180000,	6506.89,	127151,	-7267410}
-Const h_mC2 = 66863.6
-Const h_mC1 = 7707660
-Const h_mC0 = 1377880000
-Const h_bC2 = 7400.48
-Const h_bC1 = 139180
-Const h_bC0 = -3439490
 Const h_sn  = 6190
 
 ' Below are constants for the control of the heater outputs.
-Const twopi = 6.283185
-Const piov2 = 1.5708
+Const two_pi = 6.283185
+Const half_pi = 1.5708
 Const SB = 5.67E-8
 Const MODE = -1
 
@@ -139,9 +133,9 @@ EndTable
 
 DataTable(irr_params, True, -1)
   ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0) 
-  Sample(6, r_coef, IEEE4)
+  Sample(6, r_coef(), IEEE4)
   Sample(1, r_sn,  UINT2)
-  Sample(6, h_coef, IEEE4)
+  Sample(6, h_coef(), IEEE4)
   Sample(1, h_sn,  UINT2)
 EndTable
 
