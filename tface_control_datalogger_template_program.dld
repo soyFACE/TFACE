@@ -160,7 +160,7 @@ Sub Clamp(x, lwr, upr)
   If x > upr Then x = upr
 EndSub
 
-Function min(x, y)
+Function get_min(x, y)
   If x <= y Then Return (x) Else Return (y) EndIf
 EndFunction 
 '  Subroutine to compute PID output control signal
