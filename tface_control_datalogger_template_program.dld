@@ -160,7 +160,7 @@ Sub Clamp(x, lwr, upr)
   If x > upr Then x = upr
 EndSub
 
-Function get_min(x, y)
+Function minimum(x, y)
   If x <= y Then Return (x) Else Return (y) EndIf
 EndFunction 
 '  Subroutine to compute PID output control signal
@@ -253,10 +253,11 @@ Function max_volt_limit(old_voltage)
   Public curvature = 1.82
   Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
   Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
-
-  numerator = PWR(curvature, old_voltage - upper_lim) 
+  Public volt_limit_out 
+  numerator = PWR(curvature, old_voltage - max_out_volt) 
   voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  Return (old_voltage + voltageLimitRate)
+  volt_limit_out = old_voltage + voltageLimitRate
+  Return (volt_limit_out)
 EndFunction
 
 Sub switch_12_volt(state)
@@ -349,10 +350,10 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
 
-    upper_lim = get_min(max_volt_limit(PID_lmt), max_out_volt)
+    upper_lim = minimum(max_volt_limit(PID_lmt), max_out_volt)
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
-      upper_lim = get_min(upper_lim, 3.5) 
+      upper_lim = minimum(upper_lim, 3.5) 
     EndIf
       
     If heatmanset < 0 Then
