@@ -159,6 +159,10 @@ Sub Clamp(x, lwr, upr)
   If x < lwr Then x = lwr
   If x > upr Then x = upr
 EndSub
+
+Function min(x, y)
+  If x <= y Then Return (x) Else Return (y) EndIf
+EndFunction 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 Function PID_control
@@ -171,7 +175,7 @@ Function PID_control
   Dim windup_upper_lim, windup_lower_lim
   Dim onlyIntegrateIf As Boolean
   Public error, error_deriv, error_prev, delta_integral 
-  Dim PID_out
+  Public PID_out
   Dim alpha
 
 
@@ -206,7 +210,6 @@ Function PID_control
   PID_out = PID_out * cons_m + cons_b
 
   ' Clamp output to limits
-  Call Clamp(PID_out, lower_lim, upper_lim)
   Return (PID_out)
 EndFunction
 
@@ -242,7 +245,7 @@ Function CorrectRef(PID_CR, T_correct)
   ' because it is assumed that these will be the same in the reference plot.
 EndFunction
 
-Function max_delta_v(old_voltage) 
+Function max_volt_limit(old_voltage) 
 ' Calculate the maximum voltage increase.
   Dim voltageLimitRate
   Dim numerator 
@@ -253,7 +256,7 @@ Function max_delta_v(old_voltage)
 
   numerator = PWR(curvature, old_voltage - upper_lim) 
   voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  Return (voltageLimitRate)
+  Return (old_voltage + voltageLimitRate)
 EndFunction
 
 Sub switch_12_volt(state)
@@ -346,10 +349,10 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
 
-    upper_lim = PID_lmt + max_delta_v(PID_lmt)
+    upper_lim = min(max_volt_limit(PID_lmt), max_out_volt)
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
-      Call Clamp(upper_lim, min_out_volt, 3.5) ' minimum of 3.5 and upper_lim
+      upper_lim = min(upper_lim, 3.5) 
     EndIf
       
     If heatmanset < 0 Then
