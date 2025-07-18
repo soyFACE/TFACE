@@ -183,8 +183,11 @@ EndTable
 
 ' Additional Variables for output
 DataTable (control_extra, True, -1)
-  Sample  (1, pid_error_smooth, IEEE4, 0)
-  Sample  (1, PID_lmt, IEEE4, 0) 
+  Sample (1, pid_error_smooth, IEEE4, 0)
+  Sample (1, PID_lmt, IEEE4, 0) 
+  Sample (1, PID_out, IEEE4, 0)
+  Sample (1, upper_lim, IEEE4, 0)
+  Sample (1, max_volt_limit, 0)
 EndTable
 
 
@@ -287,17 +290,20 @@ EndFunction
 
 Function max_volt_limit(old_voltage)
   ' Calculate the maximum voltage increase.
-  Public volt_limit_out
   Dim voltageLimitRate
   Dim numerator   
-  Public volt_increase_rate_limit = 9 / 600 ' = 9 V / 10 min  
-  
+  Public curvature = 1.82
+  Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
+  Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
+
   If (old_voltage) < 1 Then 
     Return (1)
-  EndIf 
+  EndIf
 
-  volt_limit_out = old_voltage + volt_increase_rate_limit * delta_t
-  Return (volt_limit_out)
+  numerator = PWR(curvature, old_voltage - max_out_volt) 
+  voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
+  Return (old_voltage + voltageLimitRate) 
+
 EndFunction
 
 Sub switch_12_volt(state)
@@ -389,9 +395,9 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
     upper_lim = max_out_volt 
-    max_volt_limit(PID_lmt)
+    volt_limit_out = max_volt_limit(PID_lmt)
     If voltage_limiting_active Then 
-      upper_lim = minimum(upper_lim, max_volt_limit)
+      upper_lim = minimum(upper_lim, volt_limit_out)
     EndIf 
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
@@ -431,7 +437,7 @@ BeginProg
 
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
-    CallTable Control_extra
+    CallTable control_extra
   NextScan
   
   SlowSequence
