@@ -183,8 +183,11 @@ EndTable
 
 ' Additional Variables for output
 DataTable (control_extra, True, -1)
-  Sample  (1, pid_error_smooth, IEEE4, 0)
-  Sample  (1, PID_lmt, IEEE4, 0) 
+  Sample (1, pid_error_smooth, IEEE4, 0)
+  Sample (1, PID_lmt, IEEE4, 0) 
+  Sample (1, PID_out, IEEE4, 0)
+  Sample (1, upper_lim, IEEE4, 0)
+  Sample (1, max_volt_limit, 0)
 EndTable
 
 
@@ -207,7 +210,7 @@ Function PID_control
   Public cons_b = 4
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 45 ' seconds
+  Public smoothing_time = 20 ' seconds
   ' First set
   Dim windup_upper_lim, windup_lower_lim
   Dim onlyIntegrateIf As Boolean
@@ -288,16 +291,18 @@ EndFunction
 Function max_volt_limit(old_voltage)
   ' Calculate the maximum voltage increase.
   Dim voltageLimitRate
-  Dim numerator 
-  
+  Dim numerator   
   Public curvature = 1.82
   Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
   Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
-  
+
+  If (old_voltage) < 1 Then 
+    Return (1)
+  EndIf
 
   numerator = PWR(curvature, old_voltage - max_out_volt) 
   voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  Return (old_voltage + voltageLimitRate)
+  Return (old_voltage + voltageLimitRate) 
 
 EndFunction
 
@@ -325,9 +330,9 @@ BeginProg
   ' or Num Display options when connected.
 
   Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
-  Kp = 50          ' Tuning constants
-  Ki = 0.5
-  Kd = 5
+  Kp = 40          ' Tuning constants
+  Ki = 0.3
+  Kd = 0
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Range is 0-10 and clamped to this range to prevent user error. 
 
@@ -432,7 +437,7 @@ BeginProg
 
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
-    CallTable Control_extra
+    CallTable control_extra
   NextScan
   
   SlowSequence
