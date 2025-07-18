@@ -207,7 +207,7 @@ Function PID_control
   Public cons_b = 4
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 45 ' seconds
+  Public smoothing_time = 20 ' seconds
   ' First set
   Dim windup_upper_lim, windup_lower_lim
   Dim onlyIntegrateIf As Boolean
@@ -287,18 +287,17 @@ EndFunction
 
 Function max_volt_limit(old_voltage)
   ' Calculate the maximum voltage increase.
+  Public volt_limit_out
   Dim voltageLimitRate
-  Dim numerator 
+  Dim numerator   
+  Public volt_increase_rate_limit = 9 / 600 ' = 9 V / 10 min  
   
-  Public curvature = 1.82
-  Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
-  Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
-  
+  If (old_voltage) < 1 Then 
+    Return (1)
+  EndIf 
 
-  numerator = PWR(curvature, old_voltage - max_out_volt) 
-  voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  Return (old_voltage + voltageLimitRate)
-
+  volt_limit_out = old_voltage + volt_increase_rate_limit * delta_t
+  Return (volt_limit_out)
 EndFunction
 
 Sub switch_12_volt(state)
@@ -325,9 +324,9 @@ BeginProg
   ' or Num Display options when connected.
 
   Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
-  Kp = 50          ' Tuning constants
-  Ki = 0.5
-  Kd = 5
+  Kp = 40          ' Tuning constants
+  Ki = 0.3
+  Kd = 0
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Range is 0-10 and clamped to this range to prevent user error. 
 
@@ -390,9 +389,9 @@ BeginProg
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
     upper_lim = max_out_volt 
-    volt_limit_out = max_volt_limit(PID_lmt)
+    max_volt_limit(PID_lmt)
     If voltage_limiting_active Then 
-      upper_lim = minimum(upper_lim, volt_limit_out)
+      upper_lim = minimum(upper_lim, max_volt_limit)
     EndIf 
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
