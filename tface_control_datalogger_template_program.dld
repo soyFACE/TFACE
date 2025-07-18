@@ -110,6 +110,9 @@ Public lower_lim = 0  ' The effective lower limi of the heaters.  Lowest is min_
 Public clampLenienceInterval
 
 ' VOLTAGE LIMITER PARAMETERS
+Public voltage_limiting_active As Boolean = True 
+Public volt_limit_out 
+
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -163,7 +166,7 @@ EndTable
 
 
 '  This Table is for the T-FACE critical variables.
-DataTable (Control, True, -1)       ' Change based on plot
+DataTable (control, True, -1)       ' Change based on plot
   DataInterval(0, 10, Min, -1)
   Average (1, TtarRC, IEEE4, 0)
   Average (1, TtarHC, IEEE4, 0)
@@ -172,9 +175,16 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
-  Sample  (1, pid_error_integral, IEEE4, 0)
-  Sample  (1, pid_error_smooth, IEEE4, 0)
+  Sample  (1, IxKi_sum, IEEE4, 0)
+  Sample  (1, P_error, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
+  Sample  (1, rateLimiterOn, IEEE4, 0) 
+EndTable
+
+' Additional Variables for output
+DataTable (control_extra, True, -1)
+  Sample  (1, pid_error_smooth, IEEE4, 0)
+  Sample  (1, PID_lmt, IEEE4, 0) 
 EndTable
 
 
@@ -197,14 +207,17 @@ Function PID_control
   Public cons_b = 4
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 30 ' seconds
+  Public smoothing_time = 45 ' seconds
   ' First set
   Dim windup_upper_lim, windup_lower_lim
   Dim onlyIntegrateIf As Boolean
   Public error, error_deriv, error_prev, delta_integral 
   Public PID_out
   Dim alpha
-
+  Alias error = P_error
+  Alias pid_error_integral = IxKi_sum
+  Public rateLimiterOn = 0
+  
 
   ' ERROR TERM
   error = T_Diffrns	- Target	                   ' PROPORTIONAL
@@ -272,19 +285,20 @@ Function CorrectRef(PID_CR, T_correct)
   ' because it is assumed that these will be the same in the reference plot.
 EndFunction
 
-Function max_volt_limit(old_voltage) 
-' Calculate the maximum voltage increase.
+Function max_volt_limit(old_voltage)
+  ' Calculate the maximum voltage increase.
   Dim voltageLimitRate
   Dim numerator 
   
   Public curvature = 1.82
   Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
   Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
-  Public volt_limit_out 
+  
+
   numerator = PWR(curvature, old_voltage - max_out_volt) 
   voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  volt_limit_out = old_voltage + voltageLimitRate
-  Return (volt_limit_out)
+  Return (old_voltage + voltageLimitRate)
+
 EndFunction
 
 Sub switch_12_volt(state)
@@ -317,7 +331,7 @@ BeginProg
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Range is 0-10 and clamped to this range to prevent user error. 
 
-  clampLenienceInterval = 0.5
+  clampLenienceInterval = 1 ' volt
   PID_lmt = 1 ' Set the initial value of PID_lmt.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
@@ -375,8 +389,11 @@ BeginProg
     
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
-
-    upper_lim = minimum(max_volt_limit(PID_lmt), max_out_volt)
+    upper_lim = max_out_volt 
+    volt_limit_out = max_volt_limit(PID_lmt)
+    If voltage_limiting_active Then 
+      upper_lim = minimum(upper_lim, volt_limit_out)
+    EndIf 
     'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
       upper_lim = minimum(upper_lim, 3.5) 
@@ -415,7 +432,7 @@ BeginProg
 
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
-
+    CallTable Control_extra
   NextScan
   
   SlowSequence
