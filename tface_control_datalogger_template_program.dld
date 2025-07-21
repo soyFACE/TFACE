@@ -306,9 +306,7 @@ Function max_volt_limit(old_voltage)
   
   If old_voltage >= 3.5 Then 
     unit_counter += delta_t / 60 / build_up_time
-  EndIf 
-
-  If unit_counter > 0 Then  
+  ElseIf unit_counter > 0 Then  
     unit_counter -= delta_t / 60 / build_up_time
   EndIf 
   numerator = PWR(curvature, old_voltage - max_out_volt) 
