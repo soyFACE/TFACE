@@ -175,19 +175,20 @@ DataTable (control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
-  Sample  (1, IxKi_sum, IEEE4, 0)
-  Sample  (1, P_error, IEEE4, 0)
+  Sample  (1, IxKi_sum, IEEE4)
+  Sample  (1, P_error, IEEE4)
   Average (1, PID_lmt, IEEE4, 0)
-  Sample  (1, rateLimiterOn, IEEE4, 0) 
+  Sample  (1, rateLimiterOn, IEEE4) 
 EndTable
 
 ' Additional Variables for output
 DataTable (control_extra, True, -1)
-  Sample (1, pid_error_smooth, IEEE4, 0)
-  Sample (1, PID_lmt, IEEE4, 0) 
-  Sample (1, PID_out, IEEE4, 0)
-  Sample (1, upper_lim, IEEE4, 0)
-  Sample (1, max_volt_limit, 0)
+  DataInterval(0, 10, Min, -1)
+  Sample (1, pid_error_smooth, IEEE4)
+  Sample (1, PID_lmt, IEEE4) 
+  Sample (1, PID_out, IEEE4)
+  Sample (1, upper_lim, IEEE4)
+  Sample (1, volt_limit_out, IEEE4)
 EndTable
 
 
@@ -346,7 +347,7 @@ BeginProg
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Range is 0-10 and clamped to this range to prevent user error. 
 
-  clampLenienceInterval = 1 ' volt
+  clampLenienceInterval = 0.1 ' volt
   PID_lmt = 1 ' Set the initial value of PID_lmt.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
