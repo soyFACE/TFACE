@@ -234,8 +234,8 @@ Function PID_control
   error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
   
   ' INTEGRAL
-  delta_integral = (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule
-  
+  delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+
   ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clampLenienceInterval
@@ -248,7 +248,7 @@ Function PID_control
     pid_error_integral += delta_integral    
   EndIf
 
-  PID_out = Kp * pid_error_smooth + Ki * pid_error_integral + Kd * error_deriv
+  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
 
@@ -292,17 +292,27 @@ Function max_volt_limit(old_voltage)
   ' Calculate the maximum voltage increase.
   Dim voltageLimitRate
   Dim numerator   
+  Public unit_counter = 0 
   Public curvature = 1.82
   Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
   Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
+  Public build_up_time = 10 ' min 
+  Public volt_bump = 0.5 ' 0.5 V
 
   If (old_voltage) < 1 Then 
     Return (1)
   EndIf
+  
+  If old_voltage > 3.5 Then 
+    unit_counter += delta_t / 60 / build_up_time
+  EndIf 
 
+  If unit_counter > 0 Then  
+    unit_counter -= delta_t / 60 / build_up_time
+  EndIf 
   numerator = PWR(curvature, old_voltage - max_out_volt) 
   voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-  Return (old_voltage + voltageLimitRate) 
+  Return (old_voltage + voltageLimitRate + volt_bump * unit_counter) 
 
 EndFunction
 
