@@ -51,38 +51,36 @@ Const h_bC1 = 139180
 Const h_bC0 = -3439490
 Const h_sn  = 6184
 
+
 ' Below are constants for the control of the heater outputs.
-Const twopi = 6.283185
-Const piov2 = 1.5708
+Const two_pi = 6.283185
+Const half_pi = 1.5708
 Const SB = 5.67E-8
 Const MODE = -1
 
 #If LoggerType = CR1000X
-    Const VoltRange=mv200C
-    Const wind_pulse_port=P1
-    Const ekm_meter_port=P2
-    Const sw12_chan = SW12_1
-    Const APHRODITE = "24242"
-#ElseIf LoggerType=CR1000
-    Const VoltRange=mv2_5C
-    Const wind_pulse_port=1
-    Const ekm_meter_port = 2
-    Const APHRODITE = "24242" 
+  Const VoltRange=mV200C
+  Const wind_pulse_port=P1
+  Const ekm_meter_port=P2
+  Const sw12_chan = SW12_1
+  Const APHRODITE = "24242"
+#ElseIf LoggerType = CR1000
+  Const VoltRange=mV2_5C
+  Const wind_pulse_port=1
+  Const ekm_meter_port = 2
+  Const APHRODITE = "24242" 
 #EndIf
 
 
 
 
 ' Declare Public Variables
-Public Kp, Ki, Kd
+
 Public BattVolt, Pnl_Tmp
-Dim Nmbr_Htrs                ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
-Public Target
+Public Wind
+
+' TEMPERATURE MEASUREMENT VARIABLES  
 Public T_Diffrns
-Public IxKi_sum
-Public PID_out, PID_lmt,
-Public ScldOut(4)
-Dim T_correct
 Public TadjH
 Public mV_tpileR
 Dim TbodyRK
@@ -94,29 +92,27 @@ Dim TbodyHK
 Public TbodyHC
 Dim TtarHK
 Public TtarHC
-Public Wind
-Dim cons_m, cons_b, 
-Public upper_lim, lower_lim, heatmanset
-Dim Eff, Maxrad
-
- ' PID CONTROL'
-Dim delta_t            ' Need to set delta_t to execution interval
-Dim P_error, D_dMVovdt
-Dim Prev_Meas, Prev_Err
-Dim Kp_x_P, Kd_x_D, Sum_KpKdKi
 Dim r_m, h_m, r_b, h_b
-Dim PID_CR, Radjust, Th_Adjust, Rheater, Rreflect, R_IRT
 
-' RATE LIMITING
-Public rateLimiterOn
-Dim rateTimer
+ ' HEATER CONTROL & PID CONTROLLER VARIABLES'
+Public Target ' Target temperature diff
+Public heatmanset 'Manual control
+Const delta_t = 5 ' seconds            ' Need to set delta_t to execution interval
+Public PID_lmt
+Public ScldOut(4)
+Const Nmbr_Htrs = 24   ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
+
+Public Kp, Ki, Kd
+Const max_out_volt = 10 ' This is the upper limit of the heaters.
+Const min_out_volt = 0  ' This is the lower limit of the heaters.
+Public upper_lim = 10   ' The effecitve upper limit of the heaters.  Max is max_out_volt
+Public lower_lim = 0  ' The effective lower limi of the heaters.  Lowest is min_out_volt
 Public clampLenienceInterval
 
 ' VOLTAGE LIMITER PARAMETERS
-Public curvature
-Public allowed_rate_at_max_voltage ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
-Public minimum_allowed_rate ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
-Dim oldVoltage
+Public voltage_limiting_active As Boolean = True 
+Public volt_limit_out 
+
 
 ' Public variables for power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -141,7 +137,6 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, mV_tpileH, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
   Sample  (1, Target, IEEE4)
-  Sample  (1, PID_out, IEEE4, 0)
   Average (1, PID_lmt, IEEE4, 0)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, Pnl_Tmp, IEEE4, 0)
@@ -169,8 +164,9 @@ DataTable(irr_params, True, -1)
   Sample(1, h_sn,  UINT2)
 EndTable
 
+
 '  This Table is for the T-FACE critical variables.
-DataTable (Control, True, -1)       ' Change based on plot
+DataTable (control, True, -1)       ' Change based on plot
   DataInterval(0, 10, Min, -1)
   Average (1, TtarRC, IEEE4, 0)
   Average (1, TtarHC, IEEE4, 0)
@@ -185,50 +181,88 @@ DataTable (Control, True, -1)       ' Change based on plot
   Sample  (1, rateLimiterOn, IEEE4, 0) 
 EndTable
 
+' Additional Variables for output
+DataTable (control_extra, True, -1)
+  Sample (1, pid_error_smooth, IEEE4, 0)
+  Sample (1, PID_lmt, IEEE4, 0) 
+  Sample (1, PID_out, IEEE4, 0)
+  Sample (1, upper_lim, IEEE4, 0)
+  Sample (1, max_volt_limit, 0)
+EndTable
 
 
+Sub Clamp(x, lwr, upr)
+  If x < lwr Then x = lwr
+  If x > upr Then x = upr
+EndSub
+
+Function minimum(x, y)
+  If x <= y Then 
+    Return (x) 
+  Else 
+    Return (y) 
+  EndIf
+EndFunction 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
-Sub PIRcontrol
+Function PID_control
+  Public cons_m = 0.03
+  Public cons_b = 4
+  Public pid_error_smooth = 0
+  Public pid_error_integral = 0
+  Public smoothing_time = 20 ' seconds
   ' First set
   Dim windup_upper_lim, windup_lower_lim
-  Dim check As Boolean
+  Dim onlyIntegrateIf As Boolean
+  Public error, error_deriv, error_prev, delta_integral 
+  Public PID_out
+  Dim alpha
+  Alias error = P_error
+  Alias pid_error_integral = IxKi_sum
+  Public rateLimiterOn = 0
   
-  P_error = T_Diffrns - Target		                   ' PROPORTIONAL
-  Kp_x_P = P_error * Kp
 
-  D_dMVovdt = (T_Diffrns - Prev_Meas) / delta_t    ' DERIVATIVE
-  Kd_x_D = Kd * D_dMVovdt
-
-  Prev_Err = (Prev_Err + P_error) / 2  ' Average error  INTEGRAL
-  Prev_Err = Prev_Err * delta_t
-  Prev_Err = Prev_Err * Ki            ' Next Ki increment
+  ' ERROR TERM
+  error = T_Diffrns	- Target	                   ' PROPORTIONAL
   
+  ' EXPONENTIAL WEIGHTED SMOOTHING
+  error_prev = pid_error_smooth
+  alpha = 1 - EXP(- delta_t / smoothing_time) ' sampling rate adjusted coefficient 
+  pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth 
+  
+  ' DERIVATIVE 
+  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
+  
+  ' INTEGRAL
+  delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+
   ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clampLenienceInterval
   windup_lower_lim = lower_lim - clampLenienceInterval
-  
-  check = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
-  check = check OR (PID_out >= windup_upper_lim AND Prev_Err > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
-  check = check OR (PID_out <= windup_lower_lim AND Prev_Err < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
-  If check Then
-    IxKi_sum = IxKi_sum + Prev_Err    
+
+  onlyIntegrateIf = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
+  onlyIntegrateIf = onlyIntegrateIf OR (PID_out >= windup_upper_lim AND delta_integral > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  onlyIntegrateIf = onlyIntegrateIf OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  If onlyIntegrateIf Then
+    pid_error_integral += delta_integral    
   EndIf
 
-  Sum_KpKdKi = Kp_x_P + Kd_x_D + IxKi_sum
-  PID_out = Kp_x_P + Kd_x_D + IxKi_sum
+  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
-  Prev_Meas = T_Diffrns          ' Shift measured to Prev_meas for next time step
-  Prev_Err = T_Diffrns - Target  ' Store previous error to get ready for next time step
 
-EndSub
+  ' Clamp output to limits
+  Return (PID_out)
+EndFunction
 
 
 '  Adjust the apparent temperature in the heated plot for radiation reflected
 '  from the heaters.
-Sub CorrectRef
+Function CorrectRef(PID_CR, T_correct)
+  Dim Eff, Maxrad, Th_Adjust, Radjust, Rheater, Rreflect, R_IRT
+
+
   ' Assume: fraction of thermal energy emitted by heater in the 8 to 14 um band
   '        sensed by Apogee IRR-P is 0.14 for heater at 600 degrees C.
   '        Multiply by 0.9 for window transmittance > 0.13.
@@ -249,45 +283,37 @@ Sub CorrectRef
   R_IRT = 0.33 * SB * (T_correct + 273.15)^4          ' Calculate amount of energy sensed by IRT
   Radjust = R_IRT - Rreflect                          ' Subtract the radiation from the heater
   Th_Adjust = ((Radjust / (SB * 0.33))^0.25) - 273.15 ' Calculate temperature from the radiation
-
+  Return (Th_Adjust)
   ' Note: No adjustment for canopy emmissivity and reflected sky radiation are being
   ' because it is assumed that these will be the same in the reference plot.
-EndSub
+EndFunction
 
+Function max_volt_limit(old_voltage)
+  ' Calculate the maximum voltage increase.
+  Dim voltageLimitRate
+  Dim numerator   
+  Public unit_counter = 0 
+  Public curvature = 1.82
+  Public allowed_rate_at_max_voltage = 0.45 ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
+  Public minimum_allowed_rate = 0.01 ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
+  Public build_up_time = 10 ' min 
+  Public volt_bump = 0.5 ' 0.5 V
 
-
-Function voltageLimiter(old_voltage, new_voltage) 
-' Calulate the maximum voltage increase.
-  Dim voltageLimitRate, upperVoltageLimit, lowerVoltageLimit
-  Dim max_voltage
-  Dim numerator 
-  Dim denominator
-
-  curvature = 1.82 
-  max_voltage = 10
-  allowed_rate_at_max_voltage = 0.45
-  minimum_allowed_rate = 0.01
-
-  numerator = PWR(curvature, old_voltage) 
-  denominator = PWR(curvature, upper_lim) 
-  denominator = denominator * allowed_rate_at_max_voltage 
-  voltageLimitRate = numerator / denominator + minimum_allowed_rate
-  
-  upperVoltageLimit = old_voltage + voltageLimitRate
-  lowerVoltageLimit = old_voltage - voltageLimitRate
-
-  ' If the new voltage is greater than the upper limit, return the upper limit
-  ' If the new voltage is less than the lower limit, return the lower limit
-  ' Otherwise, return the new voltage
-  If new_voltage > upperVoltageLimit Then
-    rateLimiterOn += 1
-    return upperVoltageLimit
-  Else If new_voltage < lowerVoltageLimit Then
-    rateLimiterOn += 1 
-    return lowerVoltageLimit
-  Else
-    return new_voltage
+  If (old_voltage) < 1 Then 
+    Return (1)
   EndIf
+  
+  If old_voltage > 3.5 Then 
+    unit_counter += delta_t / 60 / build_up_time
+  EndIf 
+
+  If unit_counter > 0 Then  
+    unit_counter -= delta_t / 60 / build_up_time
+  EndIf 
+  numerator = PWR(curvature, old_voltage - max_out_volt) 
+  voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
+  Return (old_voltage + voltageLimitRate + volt_bump * unit_counter) 
+
 EndFunction
 
 Sub switch_12_volt(state)
@@ -313,22 +339,14 @@ BeginProg
   ' to recompile the program.  They can be changed via a 'connected' datalogger (from the graphs
   ' or Num Display options when connected.
 
-  Nmbr_Htrs = 24   ' Number of Mor FTE heaters (1000W)
   Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
-  Kp = 50          ' Tuning constants
-  Ki = 0.5
-  Kd = 5
-  cons_m = 0.03
-  cons_b = 4
-  upper_lim = 10   ' This is the upper limit of the heaters.  Max is 10.
-  lower_lim = 3.5  ' This is the lowest output value of the heaters.  Lowest is 0
-  heatmanset = 0   ' This is the manual control option.  -1 means automatic control.  0-10 is
-                   ' the scaled output from 0 to 10.  Anything other then -1 to 10 will create
-                   ' a time-space anomaly which would destroy the universe.  Maybe.
-  delta_t = 5      ' Execution interval.  This must match with the 'Scan' interval below.
-  oldVoltage = lower_lim
-  rateTimer = 0 
-  clampLenienceInterval = 0.5
+  Kp = 40          ' Tuning constants
+  Ki = 0.3
+  Kd = 0
+  heatmanset = 0    ' This is the manual control option.  -1 means automatic control
+                    ' Range is 0-10 and clamped to this range to prevent user error. 
+
+  clampLenienceInterval = 1 ' volt
   PID_lmt = 1 ' Set the initial value of PID_lmt.
 
   is_rain_control = (Status.StationName(1,1) = "26164")
@@ -339,7 +357,7 @@ BeginProg
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
-  Scan (5, Sec, 0, 0)
+  Scan (delta_t, Sec, 0, 0)
 
 
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
@@ -355,7 +373,7 @@ BeginProg
     ' Measure ratios Vx/Vb of body thermistors of Reference IRTs
     Therm109(TbodyRC, 1, 5, Vx1, 0, _60Hz, 1.0, 0) ' SE channel 5
 
-    ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
+        ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
     r_m = r_mC2 * TbodyRC^2 + r_mC1 * TbodyRC + r_mC0
     r_b = r_bC2 * TbodyRC^2 + r_bC1 * TbodyRC + r_bC0
 
@@ -366,7 +384,7 @@ BeginProg
 
     ' For Heated Plots
     ' Measure thermopile voltages of T-FACE Heated IRTs
-    VoltDiff (mV_tpileH, 1, VoltRange, 2, True , 0, _60Hz, 1.0, 0)
+    VoltDiff (mV_tpileH, 1, mV7_5C, 2, True , 0, _60Hz, 1.0, 0)
     ' Measure ratios Vx/Vb of body thermistors of Heated IRTs
     Therm109 (TbodyHC, 1, 6, Vx1, 0, _60Hz, 1.0, 0)
     ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
@@ -378,53 +396,41 @@ BeginProg
     TtarHK = (TbodyHK^4 + h_m * mV_tpileH + h_b)^0.25
     TtarHC = TtarHK - 273.15
 
-
     '*******************************************************
     ' Do an adjustment of the temperature in the heated plot for thermal radiation
     ' from the heaters that is reflected from the crop canopy to the IRT
-    T_correct = TtarHC
-    PID_CR = PID_lmt
-    Call CorrectRef
-    TadjH = Th_Adjust
-
+    
+    TadjH = CorrectRef(PID_lmt, TtarHC)
+    
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
-
-    Call PIRcontrol    ' Compute PID control signal
-
-    PID_lmt = PID_out
-
-    If PID_lmt < lower_lim Then PID_lmt = lower_lim  ' Set lower limit
-    If PID_lmt > upper_lim Then PID_lmt = upper_lim  ' Set upper limit
-
+    upper_lim = max_out_volt 
+    volt_limit_out = max_volt_limit(PID_lmt)
+    If voltage_limiting_active Then 
+      upper_lim = minimum(upper_lim, volt_limit_out)
+    EndIf 
+    'lower_lim = PID_lmt - max_delta_v ' using function as variable evaluates to last output value
+    If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
+      upper_lim = minimum(upper_lim, 3.5) 
+    EndIf
+      
     If heatmanset < 0 Then
-      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
-
-      If TtarHC > 42 OR is_raining Then
-        PID_lmt = lower_lim
-      Else
-        PID_lmt = PID_lmt
-      EndIf
+      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.  
+      PID_lmt = PID_control()    ' Compute PID control signal
     Else
+      ' MANUAL OVERRIDE
       PID_lmt = heatmanset
     EndIf
-
-    ' Set maximum temperature difference - different for each experiment
-     If T_Diffrns > Target + 2 Then IxKi_sum = 0
-     ' PID_lmt = voltageLimiter(oldVoltage, PID_lmt, delta_t)
-    oldVoltage = PID_lmt
-
+    
+    ' Apply max delta voltage, raing limit, etc.
+    Call Clamp(PID_lmt, lower_lim, upper_lim)
+    ' FOR SAFETY; output is always clamped to [0, 10] volt range. 
+    Call Clamp(PID_lmt, min_out_volt, max_out_volt)
     ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
     
     '***********************************************************
     SDMCVO4 (ScldOut(), 4, 0, 10)  ' Send instruction to SDM-CV04s (mV, reps, SDMaddress, volts).
     '**********************************************************
-    rateTimer += 5 
-    If rateTimer = 900 Then
-      rateLimiterOn = 0 
-      rateTimer = 0
-    EndIf
-
 
     ' This is the rain detector code.  
     If is_rain_control Then
@@ -441,7 +447,7 @@ BeginProg
 
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
-
+    CallTable control_extra
   NextScan
   
   SlowSequence
