@@ -206,7 +206,7 @@ EndFunction
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 Function PID_control
-  Public cons_m = 0.03
+  Public cons_m = 0.015
   Public cons_b = 4
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
@@ -303,7 +303,7 @@ Function max_volt_limit(old_voltage)
     Return (1)
   EndIf
   
-  If old_voltage > 3.5 Then 
+  If old_voltage >= 3.5 Then 
     unit_counter += delta_t / 60 / build_up_time
   EndIf 
 
@@ -340,8 +340,8 @@ BeginProg
   ' or Num Display options when connected.
 
   Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
-  Kp = 40          ' Tuning constants
-  Ki = 0.3
+  Kp = 50          ' Tuning constants
+  Ki = 0.5
   Kd = 0
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Range is 0-10 and clamped to this range to prevent user error. 
