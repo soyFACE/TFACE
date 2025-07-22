@@ -383,7 +383,7 @@ BeginProg
 
     ' For Heated Plots
     ' Measure thermopile voltages of T-FACE Heated IRTs
-    VoltDiff (mV_tpileH, 1, mV7_5C, 2, True , 0, _60Hz, 1.0, 0)
+    VoltDiff (mV_tpileH, 1, VoltRange, 2, True , 0, _60Hz, 1.0, 0)
     ' Measure ratios Vx/Vb of body thermistors of Heated IRTs
     Therm109 (TbodyHC, 1, 6, Vx1, 0, _60Hz, 1.0, 0)
     ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
