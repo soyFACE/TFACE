@@ -209,7 +209,7 @@ EndFunction
 Function PID_control
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 20 ' seconds
+  Public smoothing_time = 22  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
   Public error, error_deriv, error_prev, delta_integral
@@ -233,7 +233,7 @@ Function PID_control
   ' Integral
   delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
 
-  ' Anti-windup - only add to the integral when PID output isn't saturated. PID_lmt is stored from the last time step.
+  ' Anti-windup. Only add to the integral when PID output isn't saturated. PID_out is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clamp_lenience_interval
   windup_lower_lim = lower_lim - clamp_lenience_interval
@@ -285,10 +285,25 @@ Function CorrectRef(PID_CR, T_correct)
   ' because it is assumed that these will be the same in the reference plot.
 EndFunction
 
+
+' The manufactorer says that full voltage can be applied to the ceramic
+' elements from a cold start. However, ours fracture very frequently, maybe
+' because they're outside where it's humid. As a precaution, we want to limit
+' how quickly the applied current can increase; this will slow thermal
+' expansion and hopefully reduce fracturing.
+
+' max_volt_limit accepts the current contorl voltage (old_voltage) and returns
+' an upper limit for a new voltage. It grows exponentially with old_voltage,
+' allowing larger changes when the voltage is already high. It also keeps
+' rudimentary track of how long they've been at high voltage, allowing larger
+' changes when they've warmed up, which allows larger changes if the voltage
+' decreased for only a few minutes, something that happens occasionally as the
+' PID algorithm tries to regulate temperature.
+
 Function max_volt_limit(old_voltage)
-    ' Calculate the maximum voltage increase.
     Dim voltageLimitRate
     Dim numerator
+    Dim new_voltage
     Public unit_counter = 0
     Public curvature = 1.82
     Public allowed_rate_at_max_voltage = 0.45  ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
@@ -296,21 +311,27 @@ Function max_volt_limit(old_voltage)
     Public build_up_time = 10                  ' minutes
     Public volt_bump = 0.5                     ' volts
 
-    If old_voltage < 1 Then
-        Return 1
-    EndIf
-
     If old_voltage >= 3.5 AND unit_counter < 1 Then
         unit_counter += delta_t / 60 / build_up_time
     ElseIf unit_counter > 0 Then
         unit_counter -= delta_t / 60 / build_up_time
     EndIf
 
-    numerator = PWR(curvature, old_voltage - max_out_volt)
-    voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
-    Return old_voltage + voltageLimitRate + volt_bump * unit_counter
+    If old_voltage < 1 Then
+        new_voltage = 1 
+    Else
+        numerator = PWR(curvature, old_voltage - max_out_volt)
+        voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
+        new_voltage = old_voltage + voltageLimitRate + volt_bump * unit_counter
+    EndIf
+
+    Return new_voltage
 EndFunction
 
+
+' Different loggers use different commands for the 12 V switch.
+' This is a wrapper so that every logger can be switched using the same
+' function.
 Sub switch_12_volt(state)
   #If LoggerType = CR1000X
     SW12(sw12_chan, state, 1)
@@ -327,12 +348,6 @@ BeginProg
         CallTable irr_params
         ExitScan
     NextScan
-  ' The following are constants for this experiment.  They represent the defaults by can be
-  ' changed real-time when the program is running.  Because these are all placed before the
-  ' 'Scan' command (below) they are set when the program first compiles and then not again.
-  ' This means you can change them from the default when the programm is running without having
-  ' to recompile the program.  They can be changed via a 'connected' datalogger (from the graphs
-  ' or Num Display options when connected.
 
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
