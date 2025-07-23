@@ -91,14 +91,19 @@ Public TtarHC
 Dim r_m, h_m, r_b, h_b
 
 ' Heater control & pid controller variables
-Public Target             ' Target temperature diff
+Public Target = 2.5       ' degrees C. Temperature rise of heated plot above reference plot.
 Public heatmanset         ' Manual control
 Const delta_t = 5         ' seconds. Need to set delta_t to execution interval
 Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp, Ki, Kd
+Public Kp = 35
+Public Ki = 0.5
+Public Kd = 5
+Public cons_m = 0.0065
+Public cons_b = 4
+
 Const max_out_volt = 10   ' Physical hard maximum allowed voltage to control the heaters.
 Const min_out_volt = 0    ' Physical hard minimum allowed voltage to control the heaters.
 Public upper_lim = 10     ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
@@ -202,8 +207,6 @@ EndFunction
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 Function PID_control
-  Public cons_m = 0.015
-  Public cons_b = 4
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
   Public smoothing_time = 20 ' seconds
@@ -331,10 +334,6 @@ BeginProg
   ' to recompile the program.  They can be changed via a 'connected' datalogger (from the graphs
   ' or Num Display options when connected.
 
-  Target = 2.5     ' Temperature rise (degrees C) of heated plot in T-FACE above reference plot in daytime
-  Kp = 50          ' Tuning constants
-  Ki = 0.5
-  Kd = 0
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
 
