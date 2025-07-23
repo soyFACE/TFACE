@@ -300,7 +300,7 @@ Function max_volt_limit(old_voltage)
         Return 1
     EndIf
 
-    If old_voltage >= 3.5 Then
+    If old_voltage >= 3.5 AND unit_counter < 1 Then
         unit_counter += delta_t / 60 / build_up_time
     ElseIf unit_counter > 0 Then
         unit_counter -= delta_t / 60 / build_up_time
