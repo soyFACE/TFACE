@@ -218,7 +218,10 @@ Function PID_control
   Alias error = P_error
   Alias pid_error_integral = IxKi_sum
   Public rateLimiterOn = 0
-
+  Dim Ki_, Kd_
+  
+  Ki_ = Ki * (5 / delta_t)
+  Kd_ = Kd * (delta_t / 5) 
   ' Error term
   error = T_Diffrns - Target
 
@@ -231,7 +234,7 @@ Function PID_control
   error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
 
   ' Integral
-  delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+  delta_integral = Ki_ * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
 
   ' Anti-windup. Only add to the integral when PID output isn't saturated. PID_out is stored from the last time step.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
@@ -246,7 +249,7 @@ Function PID_control
     pid_error_integral += delta_integral
   EndIf
 
-  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd * error_deriv
+  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd_ * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
 
