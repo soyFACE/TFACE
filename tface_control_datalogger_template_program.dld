@@ -98,9 +98,9 @@ Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp = 35
+Public Kp = 33
 Public Ki = 0.5
-Public Kd = 5
+Public Kd = 5.5
 Public cons_m = 0.0065
 Public cons_b = 4
 
@@ -209,7 +209,7 @@ EndFunction
 Function PID_control
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 22  ' seconds
+  Public smoothing_time = 23  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
   Public error, error_deriv, error_prev, delta_integral
@@ -258,7 +258,6 @@ EndFunction
 '  from the heaters.
 Function CorrectRef(PID_CR, T_correct)
   Dim Eff, Maxrad, Th_Adjust, Radjust, Rheater, Rreflect, R_IRT
-
 
   ' Assume: fraction of thermal energy emitted by heater in the 8 to 14 um band
   '        sensed by Apogee IRR-P is 0.14 for heater at 600 degrees C.
