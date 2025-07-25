@@ -132,9 +132,9 @@ EndTable
 
 DataTable(irr_params, True, -1)
   ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0)
-  Sample(6, r_coef, IEEE4)
+  Sample(6, r_coef(), IEEE4)
   Sample(1, r_sn,  UINT2)
-  Sample(6, h_coef, IEEE4)
+  Sample(6, h_coef(), IEEE4)
   Sample(1, h_sn,  UINT2)
 EndTable
 
