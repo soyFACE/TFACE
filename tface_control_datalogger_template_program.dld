@@ -366,7 +366,6 @@ BeginProg
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
   Scan (delta_t, Sec, 0, 0)
-
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
     PulseCount (Wind, 1, wind_pulse_port, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
