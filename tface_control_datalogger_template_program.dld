@@ -219,9 +219,10 @@ Function PID_control
   Alias pid_error_integral = IxKi_sum
   Public rateLimiterOn = 0
   Dim Ki_, Kd_
-  
-  Ki_ = Ki * (5 / delta_t)
-  Kd_ = Kd * (delta_t / 5) 
+  Dim current_integral
+
+  Ki_ = Ki * 5 / delta_t
+  Kd_ = Kd * delta_t / 5
   ' Error term
   error = T_Diffrns - Target
 
@@ -231,12 +232,18 @@ Function PID_control
   pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth
 
   ' Derivative
-  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
+  error_deriv = (pid_error_smooth - error_prev) / delta_t  'Backward finite difference.
 
   ' Integral
-  delta_integral = Ki_ * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+  delta_integral = Ki_ * delta_t / 2 * (pid_error_smooth + error_prev)  ' Trapezoid rule; Ki is multiplied here.
 
-  ' Anti-windup. Only add to the integral when PID output isn't saturated. PID_out is stored from the last time step.
+  current_integral = pid_error_integral + delta_integral  ' Use a temporary integral so that we can check for windup later.
+
+  PID_out = Kp * pid_error_smooth + current_integral + Kd_ * error_deriv
+  PID_out = PID_out * MODE       ' Change sign according to +/- mode
+  PID_out = PID_out * cons_m + cons_b
+
+  ' Anti-windup. Only add to the integral when PID output isn't saturated.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clamp_lenience_interval
   windup_lower_lim = lower_lim - clamp_lenience_interval
@@ -246,12 +253,8 @@ Function PID_control
   should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
-    pid_error_integral += delta_integral
+    pid_error_integral = current_integral
   EndIf
-
-  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd_ * error_deriv
-  PID_out = PID_out * MODE       ' Change sign according to +/- mode
-  PID_out = PID_out * cons_m + cons_b
 
   Return PID_out
 EndFunction
@@ -321,7 +324,7 @@ Function max_volt_limit(old_voltage)
     EndIf
 
     If old_voltage < 1 Then
-        new_voltage = 1 
+        new_voltage = 1
     Else
         numerator = PWR(curvature, old_voltage - max_out_volt)
         voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
@@ -409,7 +412,7 @@ BeginProg
     TadjH = CorrectRef(PID_lmt, TtarHC)
 
     ' Compute temperature differnce between heated and control plots
-    T_Diffrns = TadjH-TtarRC
+    T_Diffrns = TadjH - TtarRC
     upper_lim = max_out_volt
     volt_limit_out = max_volt_limit(PID_lmt)
 
@@ -422,7 +425,6 @@ BeginProg
     EndIf
 
     If heatmanset < 0 Then
-      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
       PID_lmt = PID_control()
     Else
       ' MANUAL OVERRIDE
