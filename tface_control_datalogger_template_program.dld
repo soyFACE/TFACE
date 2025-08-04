@@ -98,10 +98,10 @@ Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp = 33
+Public Kp = 30
 Public Ki = 0.5
 Public Kd = 5.5
-Public cons_m = 0.0065
+Public cons_m = 0.013
 Public cons_b = 4
 
 Const max_out_volt = 10   ' Physical hard maximum allowed voltage to control the heaters.
@@ -209,7 +209,7 @@ EndFunction
 Function PID_control
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 23  ' seconds
+  Public smoothing_time = 20  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
   Public error, error_deriv, error_prev, delta_integral
@@ -218,6 +218,7 @@ Function PID_control
   Alias error = P_error
   Alias pid_error_integral = IxKi_sum
   Public rateLimiterOn = 0
+  Dim potential_integral
 
   ' Error term
   error = T_Diffrns - Target
@@ -228,12 +229,18 @@ Function PID_control
   pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth
 
   ' Derivative
-  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
+  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' Backward finite difference.
 
   ' Integral
-  delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+  delta_integral = Ki * delta_t / 2 * (pid_error_smooth + error_prev)  ' Trapezoid rule; Ki is multiplied here.
 
-  ' Anti-windup. Only add to the integral when PID output isn't saturated. PID_out is stored from the last time step.
+  potential_integral = pid_error_integral + delta_integral  ' Use a temporary integral so that we can check for windup later.
+
+  PID_out = Kp * pid_error_smooth + potential_integral + Kd * error_deriv
+  PID_out = PID_out * MODE       ' Change sign according to +/- mode
+  PID_out = PID_out * cons_m + cons_b
+
+  ' Anti-windup. Only add to the integral when PID output isn't saturated.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clamp_lenience_interval
   windup_lower_lim = lower_lim - clamp_lenience_interval
@@ -243,12 +250,9 @@ Function PID_control
   should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
-    pid_error_integral += delta_integral
+    pid_error_integral = potential_integral
   EndIf
 
-  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd * error_deriv
-  PID_out = PID_out * MODE       ' Change sign according to +/- mode
-  PID_out = PID_out * cons_m + cons_b
 
   Return PID_out
 EndFunction
@@ -351,12 +355,12 @@ BeginProg
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
 
-  PID_lmt = 1 ' Set the initial value of PID_lmt.
+  PID_lmt = 0 ' Set the initial value of PID_lmt.
+  Call switch_12_volt(True)
 
   is_rain_control = (Status.StationName(1,1) = rain_logger_id)
   If Status.StationName(1,1) = power_logger_id Then
     has_ekm_meter = True
-    Call switch_12_volt(True)
   EndIf
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
@@ -367,6 +371,9 @@ BeginProg
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
     PulseCount (Wind, 1, wind_pulse_port, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
                                                 ' can be used to determine heater efficiency.
+    If Wind = NAN Then
+        Wind = 0.2
+    EndIf
 
     ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
 
