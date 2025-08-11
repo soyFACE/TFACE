@@ -146,8 +146,7 @@ DataTable (raw, True, -1)           ' Change based on plot
   Sample (1, ekmMeterKWh, IEEE4)
 EndTable
 
-DataTable(irr_params, True, -1)
-  ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0)
+DataTable(irr_params, True, 75)
   Sample(1, r_mC2, IEEE4)
   Sample(1, r_mC1, IEEE4)
   Sample(1, r_mC0, IEEE4)
@@ -348,9 +347,8 @@ EndSub
 ' Main Program
 BeginProg
 
-    Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
+    Scan(1, day, 0, 1)  ' The scan runs only once to log the IRR parameters at the start of the program.
         CallTable irr_params
-        ExitScan
     NextScan
 
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
