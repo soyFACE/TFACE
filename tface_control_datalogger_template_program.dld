@@ -98,9 +98,9 @@ Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp = 30
-Public Ki = 0.5
-Public Kd = 5.5
+Public Kp = 47
+Public Ki = 0.15
+Public Kd = 95
 Public cons_m = 0.013
 Public cons_b = 4
 
@@ -209,7 +209,7 @@ EndFunction
 Function PID_control
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 20  ' seconds
+  Public smoothing_time = 60  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
   Public error, error_deriv, error_prev, delta_integral
