@@ -104,10 +104,10 @@ Public Kd = 5.5
 Public cons_m = 0.013
 Public cons_b = 4
 
-Const max_out_volt = 10   ' Physical hard maximum allowed voltage to control the heaters.
-Const min_out_volt = 0    ' Physical hard minimum allowed voltage to control the heaters.
-Public upper_lim = 10     ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
-Public lower_lim = 0      ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
+Const max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
+Const min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
+Public upper_lim = 10        ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
+Public lower_lim = 0         ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
 Public manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
 
 ' Voltage limiter parameters
