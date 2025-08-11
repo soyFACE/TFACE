@@ -346,11 +346,7 @@ EndSub
 '****************************************************************************************
 ' Main Program
 BeginProg
-
-    Scan(1, day, 0, 1)  ' The scan runs only once to log the IRR parameters at the start of the program.
-        CallTable irr_params
-    NextScan
-
+  CallTable irr_params  ' Log the IRR parameters only once, at the start of the program.
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
 
