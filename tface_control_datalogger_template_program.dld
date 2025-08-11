@@ -108,6 +108,7 @@ Const max_out_volt = 10   ' Physical hard maximum allowed voltage to control the
 Const min_out_volt = 0    ' Physical hard minimum allowed voltage to control the heaters.
 Public upper_lim = 10     ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
 Public lower_lim = 0      ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
+Public manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
 
 ' Voltage limiter parameters
 Public voltage_limiting_active As Boolean = True
@@ -414,7 +415,7 @@ BeginProg
 
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
-    upper_lim = max_out_volt
+    upper_lim = minimum(max_out_volt, manual_max_volt)
     volt_limit_out = max_volt_limit(PID_lmt)
 
     If voltage_limiting_active Then
