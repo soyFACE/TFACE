@@ -10,8 +10,7 @@
 
 '  All IRRs will be read continuously and stored into separate files.
 
-'  There are two total files - one for T-FACE and one for all raw variables.
-
+'  There are three files - one for T-FACE, one for raw variables, and one for the IRR parameters.
 
 ' SDM-CV04 C1 connected to C1 on CR3000, C2 to C2, C3 to C3
 ' Out1 to Dimmer 1.
@@ -21,7 +20,7 @@
 ' Note: The SDM-CV04 needs to be in Voltage Mode and the default as it comes from the
 '       factory is Current Mode. Jumpers need to be changed to switch to voltage mode.
 '       The first SDM-CV04 needs to have factory default address 0.
-'       Another jumper also needes to be changed to set the address of a second
+'       Another jumper also needs to be changed to set the address of a second
 '       SDM-CV04 to be address 1.
 '
 
@@ -52,7 +51,7 @@ Const h_sn  = 6184
 ' Site configuration constants.
 Const rain_logger_id = "26164"   ' This is the station name for Athena
 Const power_logger_id = "24242"  ' This is the station name for Aphrodite.
-Const APHRODITE = "24242"        ' Indepdendent of Aphrodite having the power logger, it has network issues, so keep track of that here.
+Const APHRODITE = "24242"        ' Independent of Aphrodite having the power logger, it has network issues, so keep track of that here.
 
 ' Below are constants for the control of the heater outputs.
 Const two_pi = 6.283185
@@ -74,6 +73,7 @@ Const MODE = -1
 ' Declare public variables
 Public BattVolt, Pnl_Tmp
 Public Wind
+Public LoggerID as String * 20
 
 ' Temperature measurement variables
 Public T_Diffrns
@@ -93,7 +93,7 @@ Dim r_m, h_m, r_b, h_b
 ' Heater control & pid controller variables
 Public Target = 2.5       ' degrees C. Temperature rise of heated plot above reference plot.
 Public heatmanset         ' Manual control
-Const delta_t = 5         ' seconds. Need to set delta_t to execution interval
+Const delta_t = 5         ' seconds. delta_t must match the scan interval.
 Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
@@ -107,7 +107,7 @@ Public cons_b = 4
 Const max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
 Const min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
 Public upper_lim = 10        ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
-Public lower_lim = 0         ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
+Public lower_lim = 0         ' Controller-restricted effective minimum voltage to control the heaters. Lowest is min_out_volt
 Public manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
 
 ' Voltage limiter parameters
@@ -126,11 +126,12 @@ Public is_rain_control As Boolean
 Dim rain_byte_flag
 
 
-' Define Data Tables (these are the final stored programs)
+' Define Data Tables
 '  !!!!!!Note to change the name of all the files according to plot.
 ' This table is for all the heater array raw variables
 DataTable (raw, True, -1)           ' Change based on plot
   DataInterval(0, 10, Min, -1)
+  Sample (1, LoggerID, String)
   Average (1, TbodyRC, IEEE4, 0)
   Average (1, TbodyHC, IEEE4, 0)
   Average (1, mV_tpileR, IEEE4, 0)
@@ -144,23 +145,25 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, is_raining, FP2, 0)
   Totalize (1, ekmMeterPulseCount, UINT4, 0)
   Sample (1, ekmMeterKWh, IEEE4)
+  Sample (1, BattVolt, IEEE4)
 EndTable
 
 DataTable(irr_params, True, 75)
-  Sample(1, r_mC2, IEEE4)
-  Sample(1, r_mC1, IEEE4)
-  Sample(1, r_mC0, IEEE4)
-  Sample(1, r_bC2, IEEE4)
-  Sample(1, r_bC1, IEEE4)
-  Sample(1, r_bC0, IEEE4)
-  Sample(1, r_sn,  UINT2)
-  Sample(1, h_mC2, IEEE4)
-  Sample(1, h_mC1, IEEE4)
-  Sample(1, h_mC0, IEEE4)
-  Sample(1, h_bC2, IEEE4)
-  Sample(1, h_bC1, IEEE4)
-  Sample(1, h_bC0, IEEE4)
-  Sample(1, h_sn,  UINT2)
+  Sample (1, LoggerID, String)
+  Sample (1, r_mC2, IEEE4)
+  Sample (1, r_mC1, IEEE4)
+  Sample (1, r_mC0, IEEE4)
+  Sample (1, r_bC2, IEEE4)
+  Sample (1, r_bC1, IEEE4)
+  Sample (1, r_bC0, IEEE4)
+  Sample (1, r_sn,  UINT2)
+  Sample (1, h_mC2, IEEE4)
+  Sample (1, h_mC1, IEEE4)
+  Sample (1, h_mC0, IEEE4)
+  Sample (1, h_bC2, IEEE4)
+  Sample (1, h_bC1, IEEE4)
+  Sample (1, h_bC0, IEEE4)
+  Sample (1, h_sn,  UINT2)
   FieldNames("LoggerID,r_mC2,r_mC1,r_mC0,r_bC2,r_bC1,r_bC0,r_sn,h_mC2,h_mC1,h_mC0,h_bC2,h_bC1,h_bC0,h_sn")
 EndTable
 
@@ -168,6 +171,7 @@ EndTable
 '  This Table is for the T-FACE critical variables.
 DataTable (control, True, -1)       ' Change based on plot
   DataInterval(0, 10, Min, -1)
+  Sample (1, LoggerID, String)
   Average (1, TtarRC, IEEE4, 0)
   Average (1, TtarHC, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
@@ -179,18 +183,11 @@ DataTable (control, True, -1)       ' Change based on plot
   Sample  (1, P_error, IEEE4)
   Average (1, PID_lmt, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4)
-EndTable
-
-' Additional variables for output
-DataTable (control_extra, True, -1)
-  DataInterval(0, 10, Min, -1)
   Sample (1, pid_error_smooth, IEEE4)
-  Sample (1, PID_lmt, IEEE4)
   Sample (1, PID_out, IEEE4)
   Sample (1, upper_lim, IEEE4)
   Sample (1, volt_limit_out, IEEE4)
 EndTable
-
 
 Sub Clamp(x, lwr, upr)
   If x < lwr Then x = lwr
@@ -270,7 +267,7 @@ Function CorrectRef(PID_CR, T_correct)
 
   ' Assume: fraction of thermal energy emitted by canopy in the 8 to 14 um band
   '        sensed by Apogee IRR-P5 is 0.37 as per canopy at 20 degrees C.
-  '        Multipy by 0.9 for window transmittance > 0.33.
+  '        Multiply by 0.9 for window transmittance > 0.33.
 
   ' Assume: emissivity of plant canopy = 0.98
   Eff = 10 + 25 * EXP(-0.17 * Wind)  ' Compute efficiency of heater system (%) from wind (m/s)
@@ -285,18 +282,18 @@ Function CorrectRef(PID_CR, T_correct)
   Radjust = R_IRT - Rreflect                          ' Subtract the radiation from the heater
   Th_Adjust = (Radjust / (SB * 0.33))^0.25 - 273.15 ' Calculate temperature from the radiation
   Return Th_Adjust
-  ' Note: No adjustment for canopy emmissivity and reflected sky radiation are being
+  ' Note: No adjustment for canopy emissivity and reflected sky radiation are being applied
   ' because it is assumed that these will be the same in the reference plot.
 EndFunction
 
 
-' The manufactorer says that full voltage can be applied to the ceramic
+' The manufacturer says that full voltage can be applied to the ceramic
 ' elements from a cold start. However, ours fracture very frequently, maybe
 ' because they're outside where it's humid. As a precaution, we want to limit
 ' how quickly the applied current can increase; this will slow thermal
 ' expansion and hopefully reduce fracturing.
 
-' max_volt_limit accepts the current contorl voltage (old_voltage) and returns
+' max_volt_limit accepts the current control voltage (old_voltage) and returns
 ' an upper limit for a new voltage. It grows exponentially with old_voltage,
 ' allowing larger changes when the voltage is already high. It also keeps
 ' rudimentary track of how long they've been at high voltage, allowing larger
@@ -347,6 +344,7 @@ EndSub
 '****************************************************************************************
 ' Main Program
 BeginProg
+  LoggerID = Status.StationName(1, 1)
   CallTable irr_params  ' Log the IRR parameters only once, at the start of the program.
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
@@ -354,14 +352,14 @@ BeginProg
   PID_lmt = 0 ' Set the initial value of PID_lmt.
   Call switch_12_volt(True)
 
-  is_rain_control = (Status.StationName(1,1) = rain_logger_id)
-  If Status.StationName(1,1) = power_logger_id Then
+  is_rain_control = (LoggerID = rain_logger_id)
+  If LoggerID = power_logger_id Then
     has_ekm_meter = True
   EndIf
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
 
-  Scan (delta_t, Sec, 0, 0)
+  Scan(delta_t, Sec, 0, 0)
 
     PanelTemp (Pnl_Tmp, _60Hz) ' This is the data logger temperature
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
@@ -408,8 +406,8 @@ BeginProg
 
     TadjH = CorrectRef(PID_lmt, TtarHC)
 
-    ' Compute temperature differnce between heated and control plots
-    T_Diffrns = TadjH-TtarRC
+    ' Compute temperature difference between heated and control plots
+    T_Diffrns = TadjH - TtarRC
     upper_lim = minimum(max_out_volt, manual_max_volt)
     volt_limit_out = max_volt_limit(PID_lmt)
 
@@ -429,10 +427,16 @@ BeginProg
       PID_lmt = heatmanset
     EndIf
 
-    ' Apply max delta voltage, raing limit, etc.
+    ' Apply max delta voltage, rain limit, etc.
     Call Clamp(PID_lmt, lower_lim, upper_lim)
     ' FOR SAFETY; output is always clamped to [0, 10] volt range.
     Call Clamp(PID_lmt, min_out_volt, max_out_volt)
+
+    If (PID_lmt = NAN) Then
+        ' If one of the sensors gave NAN, PID_lmt will be NAN. Set it to 0 to ensure sensible behavior in SDMCV04.
+        PID_lmt = 0
+    EndIf
+
     ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
 
     '***********************************************************
@@ -441,8 +445,8 @@ BeginProg
 
     ' Rain sensing
     If is_rain_control Then
-      ReadIO(rain_byte_flag, 8)  ' byte flag. This checks is there is a 5 V signal coming into C4. The value returned by ReadIO is a byte flag, and the fourth bit is one (decimal value of 8) if C4 is high.
-      is_raining = (rain_byte_flag = 8)  ' True or False. If that bit is high, it's raining.
+      ReadIO(rain_byte_flag, 8)  ' byte flag. This checks if there is a 5 V signal coming into C4. The value returned by ReadIO is a byte flag, and the fourth bit is one (decimal value of 8) if C4 is high.
+      is_raining = ((rain_byte_flag AND 8) <> 0)  ' True or False. If that bit is high, it's raining.
     EndIf
 
     ' Power meter
@@ -454,16 +458,15 @@ BeginProg
 
     CallTable raw      ' Change based on plot
     CallTable control  ' Change based on plot
-    CallTable control_extra
   NextScan
 
   SlowSequence
     Scan(2, hr, 0, 0)
-      ' The loggers often lose network connection and the wireless hardware needs to be restarted.
+      ' The loggers often lose network connections and the wireless hardware needs to be restarted.
       ' This code restarts the 12 V connection that powers the wireless controller,
       ' only for Aphrodite, and only from 5 am to 8 pm.
 
-      If (Status.StationName(1,1) = APHRODITE) AND TimeIsBetween(5, 20, 24, Hr) Then
+      If (LoggerID = APHRODITE) AND TimeIsBetween(5, 20, 24, Hr) Then
         Call switch_12_volt(False)
         Delay(1, 10, sec)
         Call switch_12_volt(True)
