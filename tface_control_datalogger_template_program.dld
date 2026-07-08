@@ -98,16 +98,17 @@ Public PID_lmt
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp = 33
-Public Ki = 0.5
-Public Kd = 5.5
-Public cons_m = 0.0065
+Public Kp = 47
+Public Ki = 0.15
+Public Kd = 95
+Public cons_m = 0.013
 Public cons_b = 4
 
-Const max_out_volt = 10   ' Physical hard maximum allowed voltage to control the heaters.
-Const min_out_volt = 0    ' Physical hard minimum allowed voltage to control the heaters.
-Public upper_lim = 10     ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
-Public lower_lim = 0      ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
+Const max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
+Const min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
+Public upper_lim = 10        ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
+Public lower_lim = 0         ' Controller-restricted effective minimum votlage to control the heaters. Lowest is min_out_volt
+Public manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
 
 ' Voltage limiter parameters
 Public voltage_limiting_active As Boolean = True
@@ -145,8 +146,7 @@ DataTable (raw, True, -1)           ' Change based on plot
   Sample (1, ekmMeterKWh, IEEE4)
 EndTable
 
-DataTable(irr_params, True, -1)
-  ' TableFile("CPU:" + Status.SerialNumber + "_param_log", 8, -1, 0, 0, Hr, 0, 0)
+DataTable(irr_params, True, 75)
   Sample(1, r_mC2, IEEE4)
   Sample(1, r_mC1, IEEE4)
   Sample(1, r_mC0, IEEE4)
@@ -209,7 +209,7 @@ EndFunction
 Function PID_control
   Public pid_error_smooth = 0
   Public pid_error_integral = 0
-  Public smoothing_time = 23  ' seconds
+  Public smoothing_time = 60  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
   Public error, error_deriv, error_prev, delta_integral
@@ -218,6 +218,7 @@ Function PID_control
   Alias error = P_error
   Alias pid_error_integral = IxKi_sum
   Public rateLimiterOn = 0
+  Dim potential_integral
 
   ' Error term
   error = T_Diffrns - Target
@@ -228,12 +229,18 @@ Function PID_control
   pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth
 
   ' Derivative
-  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' backward finite diff
+  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' Backward finite difference.
 
   ' Integral
-  delta_integral = Ki * (delta_t / 2) * (pid_error_smooth + error_prev)   ' Trapezoid rule; Ki is multiplied here.
+  delta_integral = Ki * delta_t / 2 * (pid_error_smooth + error_prev)  ' Trapezoid rule; Ki is multiplied here.
 
-  ' Anti-windup. Only add to the integral when PID output isn't saturated. PID_out is stored from the last time step.
+  potential_integral = pid_error_integral + delta_integral  ' Use a temporary integral so that we can check for windup later.
+
+  PID_out = Kp * pid_error_smooth + potential_integral + Kd * error_deriv
+  PID_out = PID_out * MODE       ' Change sign according to +/- mode
+  PID_out = PID_out * cons_m + cons_b
+
+  ' Anti-windup. Only add to the integral when PID output isn't saturated.
   ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
   windup_upper_lim = upper_lim + clamp_lenience_interval
   windup_lower_lim = lower_lim - clamp_lenience_interval
@@ -243,12 +250,9 @@ Function PID_control
   should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
-    pid_error_integral += delta_integral
+    pid_error_integral = potential_integral
   EndIf
 
-  PID_out = Kp * pid_error_smooth + pid_error_integral + Kd * error_deriv
-  PID_out = PID_out * MODE       ' Change sign according to +/- mode
-  PID_out = PID_out * cons_m + cons_b
 
   Return PID_out
 EndFunction
@@ -342,21 +346,16 @@ EndSub
 '****************************************************************************************
 ' Main Program
 BeginProg
-
-    Scan(1, sec, 0, 1)  ' Log the IRR parameters only once, at the start of the program.
-        CallTable irr_params
-        ExitScan
-    NextScan
-
+  CallTable irr_params  ' Log the IRR parameters only once, at the start of the program.
   heatmanset = 0    ' This is the manual control option.  -1 means automatic control
                     ' Values 0-10 are the voltage sent to the heater dimmer.
 
-  PID_lmt = 1 ' Set the initial value of PID_lmt.
+  PID_lmt = 0 ' Set the initial value of PID_lmt.
+  Call switch_12_volt(True)
 
   is_rain_control = (Status.StationName(1,1) = rain_logger_id)
   If Status.StationName(1,1) = power_logger_id Then
     has_ekm_meter = True
-    Call switch_12_volt(True)
   EndIf
 
   PulseCountReset  ' This resets all pulse counts.  Not sure if it's needed, but whatever.
@@ -367,6 +366,9 @@ BeginProg
     Battery (BattVolt)         ' This tells us the voltage of the battery powering the data logger.
     PulseCount (Wind, 1, wind_pulse_port, 0, 1, 0.09462, 0.2) ' This is for an optional wind speed sensor, which
                                                 ' can be used to determine heater efficiency.
+    If Wind = NAN Then
+        Wind = 0.2
+    EndIf
 
     ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
 
@@ -407,7 +409,7 @@ BeginProg
 
     ' Compute temperature differnce between heated and control plots
     T_Diffrns = TadjH-TtarRC
-    upper_lim = max_out_volt
+    upper_lim = minimum(max_out_volt, manual_max_volt)
     volt_limit_out = max_volt_limit(PID_lmt)
 
     If voltage_limiting_active Then
