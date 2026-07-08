@@ -161,6 +161,7 @@ DataTable(irr_params, True, 75)
   Sample(1, h_bC1, IEEE4)
   Sample(1, h_bC0, IEEE4)
   Sample(1, h_sn,  UINT2)
+  FieldNames("LoggerID,r_mC2,r_mC1,r_mC0,r_bC2,r_bC1,r_bC0,r_sn,h_mC2,h_mC1,h_mC0,h_bC2,h_bC1,h_bC0,h_sn")
 EndTable
 
 
