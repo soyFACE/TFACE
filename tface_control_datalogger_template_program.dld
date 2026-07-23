@@ -94,26 +94,65 @@ Dim r_m, h_m, r_b, h_b
 Public Target = 2.5       ' degrees C. Temperature rise of heated plot above reference plot.
 Public heatmanset         ' Manual control
 Const delta_t = 5         ' seconds. delta_t must match the scan interval.
-Public PID_lmt
+Public PID_heat_lmt
+Public PID_heat_out
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
-Public Kp = 47
-Public Ki = 0.15
-Public Kd = 95
-Public cons_m = 0.013
-Public cons_b = 4
+Public heat_Kp = 47
+Public heat_Ki = 0.15
+Public heat_Kd = 95
+Public heat_cons_m = 0.013
+Public heat_cons_b = 4
 
-Const max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
-Const min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
-Public upper_lim = 10        ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
-Public lower_lim = 0         ' Controller-restricted effective minimum voltage to control the heaters. Lowest is min_out_volt
-Public manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
+Public heat_error_smooth = 0
+Public heat_error_integral = 0
+Public heat_error = NAN
+Public heat_output = 0
+
+Const heat_max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
+Const heat_min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
+Public heat_upper_lim = 10        ' Controller-restricted effective maximum voltage to control the heaters. Max is max_out_volt
+Public heat_lower_lim = 0         ' Controller-restricted effective minimum voltage to control the heaters. Lowest is min_out_volt
+Public heat_manual_max_volt = 10  ' A manually settable variable to limit the maximum voltage.
 
 ' Voltage limiter parameters
 Public voltage_limiting_active As Boolean = True
 Public volt_limit_out
 Public clamp_lenience_interval = 0.1 ' volts
+
+' VPD measurements variables
+Dim e_s, e_a
+Public ref_hygrovue(2)
+Alias ref_hygrovue(1) = ref_VPD_RH
+Alias ref_hygrovue(2) = ref_VPD_TC
+Public ref_VPD
+
+Public mist_hygrovue(2)
+Alias mist_hygrovue(1) = mist_VPD_RH
+Alias mist_hygrovue(2) = mist_VPD_TC
+Public mist_VPD
+
+' VPD control & pid controller variables
+Public vpdmanset = 0
+Public PID_vpd_lmt = 0
+
+Public vpd_Kp = 47
+Public vpd_Ki = 0.15
+Public vpd_Kd = 95
+Public vpd_cons_m = 0.013
+Public vpd_cons_b = 4
+
+Public vpd_error_smooth = 0
+Public vpd_error_integral = 0
+Public vpd_error = NAN
+Public vpd_output = 0
+
+Const vpd_max_out_volt = 10      ' Physical hard maximum allowed voltage to control the pumps.
+Const vpd_min_out_volt = 0       ' Physical hard minimum allowed voltage to control the pumps.
+Public vpd_upper_lim = 10
+Public vpd_lower_lim = 0
+Public vpd_manual_max_volt = 10
 
 ' Power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -138,7 +177,8 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, mV_tpileH, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
   Sample  (1, Target, IEEE4)
-  Average (1, PID_lmt, IEEE4, 0)
+  Average (1, PID_heat_lmt, IEEE4, 0)
+  Average (1, PID_vpd_lmt, IEEE4, 0)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, Pnl_Tmp, IEEE4, 0)
   Sample (1, heatmanset, IEEE4)
@@ -179,13 +219,15 @@ DataTable (control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
-  Sample  (1, IxKi_sum, IEEE4)
-  Sample  (1, P_error, IEEE4)
-  Average (1, PID_lmt, IEEE4, 0)
+  Sample  (1, heating_error_integral, IEEE4)
+  Sample  (1, heating_error, IEEE4)
+  Average (1, PID_heat_lmt, IEEE4, 0)
+  Average (1, PID_heat_out, IEEE4, 0)
+  Average (1, PID_vpd_lmt, IEEE4, 0)
+  Average (1, PID_vpd_out, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4)
-  Sample (1, pid_error_smooth, IEEE4)
-  Sample (1, PID_out, IEEE4)
-  Sample (1, upper_lim, IEEE4)
+  Sample (1, heating_error_smooth, IEEE4)
+  Sample (1, heat_upper_lim, IEEE4)
   Sample (1, volt_limit_out, IEEE4)
 EndTable
 
@@ -204,37 +246,33 @@ EndFunction
 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
-Function PID_control
-  Public pid_error_smooth = 0
-  Public pid_error_integral = 0
+Function PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, ByRef error_smooth, ByRef error_integral, ByRef error)
   Public smoothing_time = 60  ' seconds
   Dim windup_upper_lim, windup_lower_lim
   Dim should_integrate As Boolean
-  Public error, error_deriv, error_prev, delta_integral
+  Public delta_integral
   Public PID_out
   Dim alpha
-  Alias error = P_error
-  Alias pid_error_integral = IxKi_sum
   Public rateLimiterOn = 0
   Dim potential_integral
 
   ' Error term
-  error = T_Diffrns - Target
+  error = obs - set_point
 
   ' Exponential weighted smoothing
-  error_prev = pid_error_smooth
-  alpha = 1 - EXP(- delta_t / smoothing_time) ' sampling rate adjusted coefficient
-  pid_error_smooth = error * alpha + (1 - alpha) * pid_error_smooth
+  error_smooth_prev = error_smooth
+  alpha = 1 - EXP(-delta_t / smoothing_time) ' sampling rate adjusted coefficient
+  error_smooth = error * alpha + (1 - alpha) * error_smooth
 
   ' Derivative
-  error_deriv = (pid_error_smooth - error_prev) / delta_t  ' Backward finite difference.
+  error_deriv = (error_smooth - error_smooth_prev) / delta_t  ' Backward finite difference.
 
   ' Integral
-  delta_integral = Ki * delta_t / 2 * (pid_error_smooth + error_prev)  ' Trapezoid rule; Ki is multiplied here.
+  delta_integral = Ki * delta_t / 2 * (error_smooth + error_smooth_prev)  ' Trapezoid rule; Ki is multiplied here.
 
-  potential_integral = pid_error_integral + delta_integral  ' Use a temporary integral so that we can check for windup later.
+  potential_integral = error_integral + delta_integral  ' Use a temporary integral so that we can check for windup later.
 
-  PID_out = Kp * pid_error_smooth + potential_integral + Kd * error_deriv
+  PID_out = Kp * error_smooth + potential_integral + Kd * error_deriv
   PID_out = PID_out * MODE       ' Change sign according to +/- mode
   PID_out = PID_out * cons_m + cons_b
 
@@ -248,7 +286,7 @@ Function PID_control
   should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
-    pid_error_integral = potential_integral
+    error_integral = potential_integral
   EndIf
 
 
@@ -346,10 +384,16 @@ EndSub
 BeginProg
   LoggerID = Status.StationName(1, 1)
   CallTable irr_params  ' Log the IRR parameters only once, at the start of the program.
-  heatmanset = 0    ' This is the manual control option.  -1 means automatic control
-                    ' Values 0-10 are the voltage sent to the heater dimmer.
 
-  PID_lmt = 0 ' Set the initial value of PID_lmt.
+  ' heatmanset allows manual control of the heater voltage.
+  ' -1 lets the PID loop control the heaters.
+  ' Values from 0-10 set the control voltage output to the dimmer.
+  heatmanset = 0
+  vpdmanset = 0
+  PID_heat_lmt = 0  ' Turn off initially.
+  PID_vpd_lmt = 0   ' Turn off initially.
+
+
   Call switch_12_volt(True)
 
   is_rain_control = (LoggerID = rain_logger_id)
@@ -369,15 +413,17 @@ BeginProg
         Wind = 0.2
     EndIf
 
+    ' =====================================================
+    ' Temperature calculations
     ' This section will collect the IRR measurements from the T-FACE IRRs (both ref and heated).
+    ' =====================================================
 
-    ' *******T-FACE***********
     ' Measure thermopile voltages of T-FACE Reference IRTs
     VoltDiff(mV_tpileR, 1, VoltRange, 1, True , 0, _60Hz, 1.0, 0) ' Diff channel 1
     ' Measure ratios Vx/Vb of body thermistors of Reference IRTs
     Therm109(TbodyRC, 1, 5, Vx1, 0, _60Hz, 1.0, 0) ' SE channel 5
 
-        ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
+    ' Calculation of m (slope) and b (intercept) coefficients for target temperature calculation
     r_m = r_mC2 * TbodyRC^2 + r_mC1 * TbodyRC + r_mC0
     r_b = r_bC2 * TbodyRC^2 + r_bC1 * TbodyRC + r_bC0
 
@@ -404,40 +450,77 @@ BeginProg
     ' Do an adjustment of the temperature in the heated plot for thermal radiation
     ' from the heaters that is reflected from the crop canopy to the IRT
 
-    TadjH = CorrectRef(PID_lmt, TtarHC)
+    TadjH = CorrectRef(PID_heat_lmt, TtarHC)
 
     ' Compute temperature difference between heated and control plots
     T_Diffrns = TadjH - TtarRC
-    upper_lim = minimum(max_out_volt, manual_max_volt)
-    volt_limit_out = max_volt_limit(PID_lmt)
+    heat_upper_lim = minimum(heat_max_out_volt, heat_manual_max_volt)
+    volt_limit_out = max_volt_limit(PID_heat_lmt)
 
     If voltage_limiting_active Then
-      upper_lim = minimum(upper_lim, volt_limit_out)
+      heat_upper_lim = minimum(heat_upper_lim, volt_limit_out)
     EndIf
 
     If TtarHC > 42 OR is_raining OR (T_Diffrns > Target + 2) Then
-      upper_lim = minimum(upper_lim, 3.5)
+      heat_upper_lim = minimum(heat_upper_lim, 3.5)
     EndIf
 
     If heatmanset < 0 Then
       ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
-      PID_lmt = PID_control()
+      PID_heat_lmt = PID_heat_out = PID_control(T_Diffrns, Target, heat_Kp, heat_Ki, heat_Kd, heat_upper_lim, heat_lower_lim, heat_cons_m, heat_cons_b, heat_error_smooth, heat_error_integral, heat_error)
     Else
       ' MANUAL OVERRIDE
-      PID_lmt = heatmanset
+      PID_heat_lmt = heatmanset
+      PID_heat_out = NAN
     EndIf
 
     ' Apply max delta voltage, rain limit, etc.
-    Call Clamp(PID_lmt, lower_lim, upper_lim)
-    ' FOR SAFETY; output is always clamped to [0, 10] volt range.
-    Call Clamp(PID_lmt, min_out_volt, max_out_volt)
+    Call Clamp(PID_heat_lmt, heat_lower_lim, heat_upper_lim)
+    Call Clamp(PID_heat_lmt, heat_min_out_volt, heat_max_out_volt)
 
-    If (PID_lmt = NAN) Then
-        ' If one of the sensors gave NAN, PID_lmt will be NAN. Set it to 0 to ensure sensible behavior in SDMCV04.
-        PID_lmt = 0
+    If (PID_heat_lmt = NAN) Then
+        ' If one of the sensors gave NAN, PID_heat_lmt will be NAN. Set it to 0 to ensure sensible behavior in SDMCV04.
+        PID_heat_lmt = 0
     EndIf
 
-    ScldOut() = PID_lmt * 1000   ' Scale from volts to mV
+    ' =====================================================
+    ' VPD calculations
+    ' =====================================================
+
+    SDI12Recorder(ref_hygrovue(), SDI12Port, "0", "M!", 1, 0)  ' The aliases ref_VPD_RH and ref_VPD_TC are set here.
+    'e_s = 0.61078 * EXP(17.27 * ref_VPD_TC / (ref_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
+    SatVaporPressure(e_s, ref_VPD_TC)
+    e_a = e_s * ref_VPD_RH / 100
+    ref_VPD = e_s - e_a
+
+    ' Needs address change. SDI12Recorder(mist_hygrovue(), SDI12Port, "1", "M!", 1, 0)  ' The alias mist_VPD_RH and mist_VPD_TC are set here.
+    'e_s = 0.61078 * EXP(17.27 * mist_VPD_TC / (mist_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
+    SatVaporPressure(e_s, mist_VPD_TC)
+    e_a = e_s * mist_VPD_RH / 100
+    mist_VPD = e_s - e_a
+
+    If vpdmanset < 0 Then
+      PID_vpd_lmt = PID_vpd_out = PID_control(mist_VPD, ref_VPD, vpd_Kp, vpd_Ki, vpd_Kd, vpd_upper_lim, vpd_lower_lim, vpd_cons_m, vpd_cons_b, vpd_error_smooth, vpd_error_integral, vpd_error)
+    Else
+      PID_vpd_lmt = vpdmanset
+      PID_vpd_out = NAN
+    EndIf
+
+    Call Clamp(PID_vpd_lmt, vpd_lower_lim, vpd_upper_lim)
+    Call Clamp(PID_vpd_lmt, vpd_min_out_volt, vpd_max_out_volt)
+
+    If PID_vpd_lmt = NAN Then
+      PID_vpd_lmt = 0
+    EndIf
+
+    ' =====================================================
+    ' Outputs
+    ' =====================================================
+
+    ScldOut(1) = PID_heat_lmt * 1000
+    ScldOut(2) = PID_vpd_lmt * 1000
+    ScldOut(3) = 0
+    ScldOut(4) = 0
 
     '***********************************************************
     SDMCVO4 (ScldOut(), 4, 0, 10)  ' Send instruction to SDM-CV04s (mV, reps, SDMaddress, volts).
