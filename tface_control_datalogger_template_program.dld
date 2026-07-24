@@ -49,9 +49,11 @@ Const h_bC0 = -3439490
 Const h_sn  = 6184
 
 ' Site configuration constants.
-Const rain_logger_id = "26164"   ' This is the station name for Athena
-Const power_logger_id = "24242"  ' This is the station name for Aphrodite.
-Const APHRODITE = "24242"        ' Independent of Aphrodite having the power logger, it has network issues, so keep track of that here.
+Const rain_logger_id = "26164"             ' This is the station name for Athena
+Const power_logger_id = "24242"            ' This is the station name for Aphrodite.
+Const APHRODITE = "24242"                  ' Independent of Aphrodite having the power logger, it has network issues, so keep track of that here.
+Const is_misting_plot  As Boolean = true   ' Misting plots need to check the reference HygroVue10 data.
+Const delta_t = 5                          ' seconds. delta_t must match the scan interval.
 
 ' Below are constants for the control of the heater outputs.
 Const two_pi = 6.283185
@@ -93,7 +95,6 @@ Dim r_m, h_m, r_b, h_b
 ' Heater control & pid controller variables
 Public Target = 2.5       ' degrees C. Temperature rise of heated plot above reference plot.
 Public heatmanset         ' Manual control
-Const delta_t = 5         ' seconds. delta_t must match the scan interval.
 Public PID_heat_lmt
 Public PID_heat_out
 Public ScldOut(4)
@@ -121,16 +122,16 @@ Public volt_limit_out
 Public clamp_lenience_interval = 0.1 ' volts
 
 ' VPD measurements variables
-Dim e_s, e_a
+Dim ref_e_s = NAN, ref_e_a = NAN, ref_leaf_e_s = NAN, treatment_e_s = NAN, treatment_e_a = NAN, treatment_leaf_e_s = NAN
 Public ref_hygrovue(2)
-Alias ref_hygrovue(1) = ref_VPD_RH
-Alias ref_hygrovue(2) = ref_VPD_TC
-Public ref_VPD
+Alias ref_hygrovue(1) = ref_hygro_RH   ' Percent
+Alias ref_hygrovue(2) = ref_hygro_T    ' degrees C
+Public ref_met_VPD = NAN, ref_leaf_VPD = NAN
 
-Public mist_hygrovue(2)
-Alias mist_hygrovue(1) = mist_VPD_RH
-Alias mist_hygrovue(2) = mist_VPD_TC
-Public mist_VPD
+Public treatment_hygrovue(2)
+Alias treatment_hygrovue(1) = treatment_hygro_RH  ' Percent
+Alias treatment_hygrovue(2) = treatment_hygro_T   ' degrees C
+Public treatment_met_VPD, treatment_leaf_VPD
 
 ' VPD control & pid controller variables
 Public vpdmanset = 0
@@ -147,11 +148,11 @@ Public vpd_error_integral = 0
 Public vpd_error = NAN
 Public PID_vpd_out = 0
 
-Const vpd_max_out_volt = 10      ' Physical hard maximum allowed voltage to control the pumps.
-Const vpd_min_out_volt = 0       ' Physical hard minimum allowed voltage to control the pumps.
-Public vpd_upper_lim = 10
-Public vpd_lower_lim = 0
-Public vpd_manual_max_volt = 10
+Const vpd_max_out_volt = 10      ' volts. Physical hard maximum allowed voltage to control the pumps.
+Const vpd_min_out_volt = 0       ' volts. Physical hard minimum allowed voltage to control the pumps.
+Public vpd_upper_lim = 10        ' volts
+Public vpd_lower_lim = 0         ' volts
+Public vpd_manual_max_volt = 10  ' volts
 
 ' Power metering using EKM Omnimeter I v.3
 Public ekmMeterPulseCount
@@ -160,7 +161,7 @@ Public has_ekm_meter As Boolean
 
 ' Rain detector variables
 Public is_raining As Boolean = True  ' Start with the assumption that it's raining, and in the first scan it will get the correct value.
-Public is_rain_control As Boolean
+Public has_rain_sensor As Boolean
 Dim rain_byte_flag
 
 
@@ -175,6 +176,20 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, mV_tpileR, IEEE4, 0)
   Average (1, mV_tpileH, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
+  Average (1, ref_e_s, IEEE4, 0)
+  Average (1, ref_e_a, IEEE4, 0)
+  Average (1, ref_leaf_e_s, IEEE4, 0)
+  Average (1, treatment_e_s, IEEE4, 0)
+  Average (1, treatment_e_a, IEEE4, 0)
+  Average (1, treatment_leaf_e_s, IEEE4, 0)
+  Average (1, ref_met_VPD, IEEE4, 0)
+  Average (1, ref_leaf_VPD, IEEE4, 0)
+  Average (1, treatment_met_VPD, IEEE4, 0)
+  Average (1, treatment_leaf_VPD, IEEE4, 0)
+  Average (1, ref_hygro_RH, IEEE4, 0)
+  Average (1, ref_hygro_T, IEEE4, 0)
+  Average (1, treatment_hygro_RH, IEEE4, 0)
+  Average (1, treatment_hygro_T, IEEE4, 0)
   Sample  (1, Target, IEEE4)
   Average (1, PID_heat_lmt, IEEE4, 0)
   Average (1, PID_vpd_lmt, IEEE4, 0)
@@ -190,20 +205,33 @@ EndTable
 DataTable(irr_params, True, 75)
   Sample (1, LoggerID, String)
   Sample (1, r_mC2, IEEE4)
+  FieldNames("r_mC2:")
   Sample (1, r_mC1, IEEE4)
+  FieldNames("r_mC1:")
   Sample (1, r_mC0, IEEE4)
+  FieldNames("r_mC0:")
   Sample (1, r_bC2, IEEE4)
+  FieldNames("r_bC2:")
   Sample (1, r_bC1, IEEE4)
+  FieldNames("r_bC1:")
   Sample (1, r_bC0, IEEE4)
-  Sample (1, r_sn,  UINT2)
+  FieldNames("r_bC0:")
+  Sample (1, r_sn, UINT2)
+  FieldNames("r_sn:")
   Sample (1, h_mC2, IEEE4)
+  FieldNames("h_mC2:")
   Sample (1, h_mC1, IEEE4)
+  FieldNames("h_mC1:")
   Sample (1, h_mC0, IEEE4)
+  FieldNames("h_mC0:")
   Sample (1, h_bC2, IEEE4)
+  FieldNames("h_bC2:")
   Sample (1, h_bC1, IEEE4)
+  FieldNames("h_bC1:")
   Sample (1, h_bC0, IEEE4)
-  Sample (1, h_sn,  UINT2)
-  FieldNames("LoggerID,r_mC2,r_mC1,r_mC0,r_bC2,r_bC1,r_bC0,r_sn,h_mC2,h_mC1,h_mC0,h_bC2,h_bC1,h_bC0,h_sn")
+  FieldNames("h_bC0:")
+  Sample (1, h_sn, UINT2)
+  FieldNames("h_sn:")
 EndTable
 
 
@@ -224,7 +252,6 @@ DataTable (control, True, -1)       ' Change based on plot
   Average (1, PID_heat_out, IEEE4, 0)
   Average (1, PID_vpd_lmt, IEEE4, 0)
   Average (1, PID_vpd_out, IEEE4, 0)
-  Sample  (1, rateLimiterOn, IEEE4)
   Sample (1, heat_error_smooth, IEEE4)
   Sample (1, heat_upper_lim, IEEE4)
   Sample (1, volt_limit_out, IEEE4)
@@ -251,9 +278,7 @@ Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b
   Dim windup_upper_lim, windup_lower_lim, error_smooth_prev, error_deriv, PID_out
   Dim should_integrate As Boolean
   Public delta_integral
-  Public PID_out
   Dim alpha
-  Public rateLimiterOn = 0
   Dim potential_integral
 
   ' Error term
@@ -282,13 +307,13 @@ Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b
   windup_lower_lim = lower_lim - clamp_lenience_interval
 
   should_integrate = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
+  ' The next two checks probably don't work for MODE = 1.
   should_integrate = should_integrate OR (PID_out >= windup_upper_lim AND delta_integral > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
   should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
     error_integral = potential_integral
   EndIf
-
 
   output = PID_out
 EndSub
@@ -345,11 +370,12 @@ Function max_volt_limit(old_voltage, max_out_volt)
     Dim new_voltage
     Public unit_counter = 0
     Public curvature = 1.82
-    Public allowed_rate_at_max_voltage = 0.45  ' Not the actual maximum. The actual allow rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
+    Public allowed_rate_at_max_voltage = 0.45  ' Not the actual maximum. The actual allowed rate is allowed_rate_at_max_voltage + minimum_allowed_rate.
     Public minimum_allowed_rate = 0.01         ' Not the actual minimum, but it moves the curve up and down, so it influences the minimum.
     Public build_up_time = 10                  ' minutes
     Public volt_bump = 0.5                     ' volts
 
+    ' Accumlate a counter up to about 1 if they voltage is over 3.5 V.
     If old_voltage >= 3.5 AND unit_counter < 1 Then
         unit_counter += delta_t / 60 / build_up_time
     ElseIf unit_counter > 0 Then
@@ -357,7 +383,7 @@ Function max_volt_limit(old_voltage, max_out_volt)
     EndIf
 
     If old_voltage < 1 Then
-        new_voltage = 1 
+        new_voltage = 1
     Else
         numerator = PWR(curvature, old_voltage - max_out_volt)
         voltageLimitRate = numerator / allowed_rate_at_max_voltage + minimum_allowed_rate
@@ -396,7 +422,7 @@ BeginProg
 
   Call switch_12_volt(True)
 
-  is_rain_control = (LoggerID = rain_logger_id)
+  has_rain_sensor = (LoggerID = rain_logger_id)
   If LoggerID = power_logger_id Then
     has_ekm_meter = True
   EndIf
@@ -448,7 +474,7 @@ BeginProg
 
     '*******************************************************
     ' Do an adjustment of the temperature in the heated plot for thermal radiation
-    ' from the heaters that is reflected from the crop canopy to the IRT
+    ' from the heaters that is reflected from the crop canopy to the IRT.
 
     TadjH = CorrectRef(PID_heat_lmt, TtarHC)
 
@@ -466,11 +492,11 @@ BeginProg
     EndIf
 
     If heatmanset < 0 Then
-      ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
-      PID_control(T_Diffrns, Target, heat_Kp, heat_Ki, heat_Kd, heat_upper_lim, heat_lower_lim, heat_cons_m, heat_cons_b, heat_error_smooth, heat_error_integral, heat_error, PID_heat_out)
+      ' PID control
+      Call PID_control(T_Diffrns, Target, heat_Kp, heat_Ki, heat_Kd, heat_upper_lim, heat_lower_lim, heat_cons_m, heat_cons_b, heat_error_smooth, heat_error_integral, heat_error, PID_heat_out)
       PID_heat_lmt = PID_heat_out
     Else
-      ' MANUAL OVERRIDE
+      ' Manual override
       PID_heat_lmt = heatmanset
       PID_heat_out = NAN
     EndIf
@@ -488,30 +514,47 @@ BeginProg
     ' VPD calculations
     ' =====================================================
 
-    SDI12Recorder(ref_hygrovue(), C5, "0", "M!", 1, 0)  ' The aliases ref_VPD_RH and ref_VPD_TC are set here.
-    'e_s = 0.61078 * EXP(17.27 * ref_VPD_TC / (ref_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
-    SatVP(e_s, ref_VPD_TC)
-    e_a = e_s * ref_VPD_RH / 100
-    ref_VPD = e_s - e_a
+    ' VPD in meterology means the difference between saturation vapor pressure in the air and vapor pressure in the air.
+    ' e_s(T_air) - e_a
+    ' In plant biology it often means the difference between saturation vapor pressure in the internal leaf air space and vapor pressure in the bulk air.
+    ' e_s(T_leaf) - e_a.
 
-    SDI12Recorder(mist_hygrovue(), C5, "1", "M!", 1, 0)  ' The alias mist_VPD_RH and mist_VPD_TC are set here.
-    'e_s = 0.61078 * EXP(17.27 * mist_VPD_TC / (mist_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
-    SatVP(e_s, mist_VPD_TC)
-    e_a = e_s * mist_VPD_RH / 100
-    mist_VPD = e_s - e_a
+    ' We're using the second sense. We want the heated and misted plot to have the same leaf VPD as the reference.
 
-    If vpdmanset < 0 Then
-      PID_control(mist_VPD, ref_VPD, vpd_Kp, vpd_Ki, vpd_Kd, vpd_upper_lim, vpd_lower_lim, vpd_cons_m, vpd_cons_b, vpd_error_smooth, vpd_error_integral, vpd_error, PID_vpd_out)
-      PID_vpd_lmt = PID_vpd_out
+    SDI12Recorder(treatment_hygrovue(), C5, "0", "M!", 1, 0)  ' The aliases treatment_hygro_RH and treatment_hygro_T are assigned here.
+    SatVP(treatment_e_s, treatment_hygro_T)
+    treatment_e_a = treatment_e_s * treatment_hygro_RH / 100
+    treatment_met_VPD = treatment_e_s - treatment_e_a
+
+    SatVP(treatment_leaf_e_s, TadjH)
+    treatment_leaf_VPD = treatment_leaf_e_s - treatment_e_a
+
+    If is_misting_plot Then
+      SDI12Recorder(ref_hygrovue(), C5, "1", "M!", 1, 0)  ' The aliases ref_hygro_RH and ref_hygro_T are assigned here.
+      SatVP(ref_e_s, ref_hygro_T)
+      ref_e_a = ref_e_s * ref_hygro_RH / 100
+      ref_met_VPD = ref_e_s - ref_e_a
+
+      SatVP(ref_leaf_e_s, TtarRC)
+      ref_leaf_VPD = ref_leaf_e_s - ref_e_a
+
+      vpd_upper_lim = Minimum(vpd_max_out_volt, vpd_manual_max_volt)
+
+      If vpdmanset < 0 Then
+        Call PID_control(treatment_leaf_VPD, ref_leaf_VPD, vpd_Kp, vpd_Ki, vpd_Kd, vpd_upper_lim, vpd_lower_lim, vpd_cons_m, vpd_cons_b, vpd_error_smooth, vpd_error_integral, vpd_error, PID_vpd_out)
+        PID_vpd_lmt = PID_vpd_out
+      Else
+        PID_vpd_lmt = vpdmanset
+        PID_vpd_out = NAN
+      EndIf
+
+      Call Clamp(PID_vpd_lmt, vpd_lower_lim, vpd_upper_lim)
+      Call Clamp(PID_vpd_lmt, vpd_min_out_volt, vpd_max_out_volt)
+
+      If PID_vpd_lmt = NAN Then
+        PID_vpd_lmt = 0
+      EndIf
     Else
-      PID_vpd_lmt = vpdmanset
-      PID_vpd_out = NAN
-    EndIf
-
-    Call Clamp(PID_vpd_lmt, vpd_lower_lim, vpd_upper_lim)
-    Call Clamp(PID_vpd_lmt, vpd_min_out_volt, vpd_max_out_volt)
-
-    If PID_vpd_lmt = NAN Then
       PID_vpd_lmt = 0
     EndIf
 
@@ -524,12 +567,11 @@ BeginProg
     ScldOut(3) = 0
     ScldOut(4) = 0
 
-    '***********************************************************
     SDMCVO4 (ScldOut(), 4, 0, 10)  ' Send instruction to SDM-CV04s (mV, reps, SDMaddress, volts).
     '**********************************************************
 
     ' Rain sensing
-    If is_rain_control Then
+    If has_rain_sensor Then
       ReadIO(rain_byte_flag, 8)  ' byte flag. This checks if there is a 5 V signal coming into C4. The value returned by ReadIO is a byte flag, and the fourth bit is one (decimal value of 8) if C4 is high.
       is_raining = ((rain_byte_flag AND 8) <> 0)  ' True or False. If that bit is high, it's raining.
     EndIf
