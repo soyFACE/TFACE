@@ -108,7 +108,6 @@ Public heat_cons_b = 4
 Public heat_error_smooth = 0
 Public heat_error_integral = 0
 Public heat_error = NAN
-Public heat_output = 0
 
 Const heat_max_out_volt = 10      ' Physical hard maximum allowed voltage to control the heaters.
 Const heat_min_out_volt = 0       ' Physical hard minimum allowed voltage to control the heaters.
@@ -146,7 +145,7 @@ Public vpd_cons_b = 4
 Public vpd_error_smooth = 0
 Public vpd_error_integral = 0
 Public vpd_error = NAN
-Public vpd_output = 0
+Public PID_vpd_out = 0
 
 Const vpd_max_out_volt = 10      ' Physical hard maximum allowed voltage to control the pumps.
 Const vpd_min_out_volt = 0       ' Physical hard minimum allowed voltage to control the pumps.
@@ -219,14 +218,14 @@ DataTable (control, True, -1)       ' Change based on plot
   Sample  (1, Target, IEEE4)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
-  Sample  (1, heating_error_integral, IEEE4)
-  Sample  (1, heating_error, IEEE4)
+  Sample  (1, heat_error_integral, IEEE4)
+  Sample  (1, heat_error, IEEE4)
   Average (1, PID_heat_lmt, IEEE4, 0)
   Average (1, PID_heat_out, IEEE4, 0)
   Average (1, PID_vpd_lmt, IEEE4, 0)
   Average (1, PID_vpd_out, IEEE4, 0)
   Sample  (1, rateLimiterOn, IEEE4)
-  Sample (1, heating_error_smooth, IEEE4)
+  Sample (1, heat_error_smooth, IEEE4)
   Sample (1, heat_upper_lim, IEEE4)
   Sample (1, volt_limit_out, IEEE4)
 EndTable
@@ -246,9 +245,10 @@ EndFunction
 
 '  Subroutine to compute PID output control signal
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
-Function PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, ByRef error_smooth, ByRef error_integral, ByRef error)
+'  Arguments passed to error_smooth, error_intergral and output are modified by this subroutine.
+Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, error_smooth, error_integral, error, output)
   Public smoothing_time = 60  ' seconds
-  Dim windup_upper_lim, windup_lower_lim
+  Dim windup_upper_lim, windup_lower_lim, error_smooth_prev, error_deriv, PID_out
   Dim should_integrate As Boolean
   Public delta_integral
   Public PID_out
@@ -290,8 +290,8 @@ Function PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, c
   EndIf
 
 
-  Return PID_out
-EndFunction
+  output = PID_out
+EndSub
 
 
 '  Adjust the apparent temperature in the heated plot for radiation reflected
@@ -339,7 +339,7 @@ EndFunction
 ' decreased for only a few minutes, something that happens occasionally as the
 ' PID algorithm tries to regulate temperature.
 
-Function max_volt_limit(old_voltage)
+Function max_volt_limit(old_voltage, max_out_volt)
     Dim voltageLimitRate
     Dim numerator
     Dim new_voltage
@@ -455,7 +455,7 @@ BeginProg
     ' Compute temperature difference between heated and control plots
     T_Diffrns = TadjH - TtarRC
     heat_upper_lim = minimum(heat_max_out_volt, heat_manual_max_volt)
-    volt_limit_out = max_volt_limit(PID_heat_lmt)
+    volt_limit_out = max_volt_limit(PID_heat_lmt, heat_max_out_volt)
 
     If voltage_limiting_active Then
       heat_upper_lim = minimum(heat_upper_lim, volt_limit_out)
@@ -467,7 +467,8 @@ BeginProg
 
     If heatmanset < 0 Then
       ' Set maximum temperature in the heated plot - presently same threshold for both experiments.
-      PID_heat_lmt = PID_heat_out = PID_control(T_Diffrns, Target, heat_Kp, heat_Ki, heat_Kd, heat_upper_lim, heat_lower_lim, heat_cons_m, heat_cons_b, heat_error_smooth, heat_error_integral, heat_error)
+      PID_control(T_Diffrns, Target, heat_Kp, heat_Ki, heat_Kd, heat_upper_lim, heat_lower_lim, heat_cons_m, heat_cons_b, heat_error_smooth, heat_error_integral, heat_error, PID_heat_out)
+      PID_heat_lmt = PID_heat_out
     Else
       ' MANUAL OVERRIDE
       PID_heat_lmt = heatmanset
@@ -487,20 +488,21 @@ BeginProg
     ' VPD calculations
     ' =====================================================
 
-    SDI12Recorder(ref_hygrovue(), SDI12Port, "0", "M!", 1, 0)  ' The aliases ref_VPD_RH and ref_VPD_TC are set here.
+    SDI12Recorder(ref_hygrovue(), C5, "0", "M!", 1, 0)  ' The aliases ref_VPD_RH and ref_VPD_TC are set here.
     'e_s = 0.61078 * EXP(17.27 * ref_VPD_TC / (ref_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
-    SatVaporPressure(e_s, ref_VPD_TC)
+    SatVP(e_s, ref_VPD_TC)
     e_a = e_s * ref_VPD_RH / 100
     ref_VPD = e_s - e_a
 
-    ' Needs address change. SDI12Recorder(mist_hygrovue(), SDI12Port, "1", "M!", 1, 0)  ' The alias mist_VPD_RH and mist_VPD_TC are set here.
+    SDI12Recorder(mist_hygrovue(), C5, "1", "M!", 1, 0)  ' The alias mist_VPD_RH and mist_VPD_TC are set here.
     'e_s = 0.61078 * EXP(17.27 * mist_VPD_TC / (mist_VPD_TC + 237.3))  ' Tetens equation to calculate saturation vapor pressure.
-    SatVaporPressure(e_s, mist_VPD_TC)
+    SatVP(e_s, mist_VPD_TC)
     e_a = e_s * mist_VPD_RH / 100
     mist_VPD = e_s - e_a
 
     If vpdmanset < 0 Then
-      PID_vpd_lmt = PID_vpd_out = PID_control(mist_VPD, ref_VPD, vpd_Kp, vpd_Ki, vpd_Kd, vpd_upper_lim, vpd_lower_lim, vpd_cons_m, vpd_cons_b, vpd_error_smooth, vpd_error_integral, vpd_error)
+      PID_control(mist_VPD, ref_VPD, vpd_Kp, vpd_Ki, vpd_Kd, vpd_upper_lim, vpd_lower_lim, vpd_cons_m, vpd_cons_b, vpd_error_smooth, vpd_error_integral, vpd_error, PID_vpd_out)
+      PID_vpd_lmt = PID_vpd_out
     Else
       PID_vpd_lmt = vpdmanset
       PID_vpd_out = NAN
