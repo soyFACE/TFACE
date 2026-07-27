@@ -530,7 +530,7 @@ BeginProg
     treatment_leaf_VPD = treatment_leaf_e_s - treatment_e_a
 
     If is_misting_plot Then
-      SDI12Recorder(ref_hygrovue(), C5, "1", "M!", 1, 0)  ' The aliases ref_hygro_RH and ref_hygro_T are assigned here.
+      SDI12Recorder(ref_hygrovue(), C7, "0", "M!", 1, 0)  ' The aliases ref_hygro_RH and ref_hygro_T are assigned here.
       SatVP(ref_e_s, ref_hygro_T)
       ref_e_a = ref_e_s * ref_hygro_RH / 100
       ref_met_VPD = ref_e_s - ref_e_a
