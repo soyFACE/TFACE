@@ -275,7 +275,7 @@ EndFunction
 '  Arguments passed to error_smooth, error_intergral and output are modified by this subroutine.
 Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, error_smooth, error_integral, error, output)
   Public smoothing_time = 60  ' seconds
-  Dim windup_upper_lim, windup_lower_lim, error_smooth_prev, error_deriv, PID_out
+  Dim  error_smooth_prev, error_deriv, PID_out
   Dim should_integrate As Boolean
   Public delta_integral
   Dim alpha
@@ -302,14 +302,10 @@ Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b
   PID_out = PID_out * cons_m + cons_b
 
   ' Anti-windup. Only add to the integral when PID output isn't saturated.
-  ' When checking saturation for windup, use a slightly permissive range. Otherwise it causes oscillations when near the extremes.
-  windup_upper_lim = upper_lim + clamp_lenience_interval
-  windup_lower_lim = lower_lim - clamp_lenience_interval
-
-  should_integrate = (PID_out < windup_upper_lim AND PID_out > windup_lower_lim)  ' If the PID output is not saturated, add to the integral sum.
+  should_integrate = (PID_out < upper_lim AND PID_out > lower_lim)  ' If the PID output is not saturated, add to the integral sum.
   ' The next two checks probably don't work for MODE = 1.
-  should_integrate = should_integrate OR (PID_out >= windup_upper_lim AND delta_integral > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
-  should_integrate = should_integrate OR (PID_out <= windup_lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
+  should_integrate = should_integrate OR (PID_out >= upper_lim AND delta_integral > 0)      ' Positive error means too hot, so if we're above the upper limit, we add only positive errors to the integral sum to cool down.
+  should_integrate = should_integrate OR (PID_out <= lower_lim AND delta_integral < 0)      ' Negative error means too cool, so if we're below the lower limit, we add only negative errors to the integral sum to heat up.
 
   If should_integrate Then
     error_integral = potential_integral
