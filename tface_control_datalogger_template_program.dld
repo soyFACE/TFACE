@@ -275,7 +275,7 @@ EndFunction
 '  Arguments passed to error_smooth, error_intergral and output are modified by this subroutine.
 Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, error_smooth, error_integral, error, output)
   Public smoothing_time = 60  ' seconds
-  Dim  error_smooth_prev, error_deriv, PID_out
+  Dim error_smooth_prev, error_deriv, PID_out
   Dim should_integrate As Boolean
   Public delta_integral
   Dim alpha
