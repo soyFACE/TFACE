@@ -44,15 +44,15 @@ Const half_pi = 1.5708
 Const SB = 5.67E-8
 Const MODE = -1
 
-#If LoggerType = CR1000X
+#If LoggerType = CR1000
+  Const VoltRange = mV2_5C
+  Const wind_pulse_port = 1
+  Const ekm_meter_port = 2
+#ElseIf LoggerType = CR1000X
   Const VoltRange = mV200C
   Const wind_pulse_port = P1
   Const ekm_meter_port = P2
   Const sw12_chan = SW12_1
-#ElseIf LoggerType = CR1000
-  Const VoltRange = mV2_5C
-  Const wind_pulse_port = 1
-  Const ekm_meter_port = 2
 #EndIf
 
 ' Declare public variables
@@ -391,10 +391,10 @@ EndFunction
 ' This is a wrapper so that every logger can be switched using the same
 ' function.
 Sub switch_12_volt(state)
-  #If LoggerType = CR1000X
-    SW12(sw12_chan, state, 1)
-  #ElseIf LoggerType = CR1000
+  #If LoggerType = CR1000
     SW12(state)
+  #ElseIf LoggerType = CR1000X
+    SW12(sw12_chan, state, 1)
   #EndIf
 EndSub
 
@@ -523,8 +523,16 @@ BeginProg
     ' e_s(T_leaf) - e_a.
 
     ' We're using the second sense. We want the heated and misted plot to have the same leaf VPD as the reference.
+   
+   ' SDI12Recorder only accepts literal values for the port numbers, so you the function call in a conditional compiliation instead of assigning a variable for the port.   
+   ' The aliases treatment_hygro_RH and treatment_hygro_T are assigned here.
 
-    SDI12Recorder(treatment_hygrovue(), C5, "0", "M!", 1, 0)  ' The aliases treatment_hygro_RH and treatment_hygro_T are assigned here.
+    #If LoggerType = CR1000
+      SDI12Recorder(treatment_hygrovue(), 5, "0", "M!", 1, 0)
+    #ElseIf LoggerType = CR1000X
+      SDI12Recorder(treatment_hygrovue(), C5, "0", "M!", 1, 0)
+    #EndIf
+    
     SatVP(treatment_e_s, treatment_hygro_T)
     treatment_e_a = treatment_e_s * treatment_hygro_RH / 100
     treatment_met_VPD = treatment_e_s - treatment_e_a
@@ -533,7 +541,11 @@ BeginProg
     treatment_leaf_VPD = treatment_leaf_e_s - treatment_e_a
 
     If is_misting_plot Then
-      SDI12Recorder(ref_hygrovue(), C7, "0", "M!", 1, 0)  ' The aliases ref_hygro_RH and ref_hygro_T are assigned here.
+      #If LoggerType = CR1000
+        SDI12Recorder(treatment_hygrovue(), 7, "0", "M!", 1, 0)
+      #ElseIf LoggerType = CR1000X
+        SDI12Recorder(treatment_hygrovue(), C7, "0", "M!", 1, 0)
+      #EndIf
       SatVP(ref_e_s, ref_hygro_T)
       ref_e_a = ref_e_s * ref_hygro_RH / 100
       ref_met_VPD = ref_e_s - ref_e_a
