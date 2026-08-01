@@ -97,6 +97,7 @@ Public Target = 2.5       ' degrees C. Temperature rise of heated plot above ref
 Public heatmanset         ' Manual control
 Public PID_heat_lmt
 Public PID_heat_out
+Public apparent_heat_voltage
 Public ScldOut(4)
 Const Nmbr_Htrs = 24      ' Number heaters per SDM-CV04 output (1000 W Mor FTE)
 
@@ -119,7 +120,6 @@ Public heat_manual_max_volt = 10  ' A manually settable variable to limit the ma
 ' Voltage limiter parameters
 Public voltage_limiting_active As Boolean = True
 Public volt_limit_out
-Public clamp_lenience_interval = 0.1 ' volts
 
 ' VPD measurements variables
 Dim ref_e_s = NAN, ref_e_a = NAN, ref_leaf_e_s = NAN, treatment_e_s = NAN, treatment_e_a = NAN, treatment_leaf_e_s = NAN
@@ -175,6 +175,8 @@ DataTable (raw, True, -1)           ' Change based on plot
   Average (1, TbodyHC, IEEE4, 0)
   Average (1, mV_tpileR, IEEE4, 0)
   Average (1, mV_tpileH, IEEE4, 0)
+  Average (1, TtarRC, IEEE4, 0)
+  Average (1, TtarHC, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
   Average (1, ref_e_s, IEEE4, 0)
   Average (1, ref_e_a, IEEE4, 0)
@@ -240,10 +242,22 @@ DataTable (control, True, -1)       ' Change based on plot
   DataInterval(0, 10, Min, -1)
   Sample (1, LoggerID, String)
   Average (1, TtarRC, IEEE4, 0)
+  StdDev  (1, TtarRC, IEEE4, 0)
   Average (1, TtarHC, IEEE4, 0)
+  StdDev  (1, TtarHC, IEEE4, 0)
   Average (1, TadjH, IEEE4, 0)
+  StdDev  (1, TadjH, IEEE4, 0)
   Average (1, T_Diffrns, IEEE4, 0)
+  StdDev  (1, T_Diffrns, IEEE4, 0)
   Sample  (1, Target, IEEE4)
+  Average (1, ref_met_VPD, IEEE4, 0)
+  StdDev  (1, ref_met_VPD, IEEE4, 0)
+  Average (1, ref_leaf_VPD, IEEE4, 0)
+  StdDev  (1, ref_leaf_VPD, IEEE4, 0)
+  Average (1, treatment_hygro_RH, IEEE4, 0)
+  StdDev  (1, treatment_hygro_RH, IEEE4, 0)
+  Average (1, treatment_hygro_T, IEEE4, 0)
+  StdDev  (1, treatment_hygro_T, IEEE4, 0)
   Average (1, ScldOut, IEEE4, 0)
   Average (1, is_raining, IEEE4, 0)
   Sample  (1, heat_error_integral, IEEE4)
@@ -412,7 +426,7 @@ BeginProg
   ' Values from 0-10 set the control voltage output to the dimmer.
   heatmanset = 0
   vpdmanset = 0
-  PID_heat_lmt = 0  ' Turn off initially.
+  PID_heat_lmt = apparent_heat_voltage = 0  ' Turn off initially.
   PID_vpd_lmt = 0   ' Turn off initially.
 
 
@@ -472,7 +486,7 @@ BeginProg
     ' Do an adjustment of the temperature in the heated plot for thermal radiation
     ' from the heaters that is reflected from the crop canopy to the IRT.
 
-    TadjH = CorrectRef(PID_heat_lmt, TtarHC)
+    TadjH = CorrectRef(apparent_heat_voltage, TtarHC)
 
     ' Compute temperature difference between heated and control plots
     T_Diffrns = TadjH - TtarRC
@@ -505,6 +519,16 @@ BeginProg
         ' If one of the sensors gave NAN, PID_heat_lmt will be NAN. Set it to 0 to ensure sensible behavior in SDMCV04.
         PID_heat_lmt = 0
     EndIf
+
+    ' Exponential weighted smoothing
+    ' The CorrectRef function assumes that the heaters have reached a steady-state temperature for the applied voltage.
+    ' However, it takes minutes for the element temperature to stabilize to the applied voltage.
+    ' Ignoring that causes the incorrect leaf temperature calculation as the elements warm or cool.
+    ' Smooth the applied voltage to estimate an apparent voltage.
+    Public voltage_smoothing_time = 120  ' seconds
+    Public voltage_alpha
+    voltage_alpha = 1 - EXP(-delta_t / voltage_smoothing_time) ' sampling rate adjusted coefficient
+    apparent_heat_voltage = PID_heat_lmt * voltage_alpha + (1 - voltage_alpha) * apparent_heat_voltage
 
     ' =====================================================
     ' VPD calculations
