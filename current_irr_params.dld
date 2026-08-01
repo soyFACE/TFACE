@@ -1,0 +1,18 @@
+' T-FACE Reference plot SN 1234
+Const r_mC2 = 133757
+Const r_mC1 = 11739300
+Const r_mC0 = 2138210000
+Const r_bC2 = 5021.86
+Const r_bC1 = 366816
+Const r_bC0 = -35064200
+Const r_sn  = 1234
+
+' T-FACE Heated plot SN 6184
+Const h_mC2 = 66863.6
+Const h_mC1 = 7707660
+Const h_mC0 = 1377880000
+Const h_bC2 = 7400.48
+Const h_bC1 = 139180
+Const h_bC0 = -3439490
+Const h_sn  = 6184
+
