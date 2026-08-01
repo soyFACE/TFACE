@@ -271,7 +271,7 @@ EndFunction
 '  Original version written with EDLOG by Tony Wahl from Campbell Scientific
 '  Arguments passed to error_smooth, error_intergral and output are modified by this subroutine.
 Sub PID_control(obs, set_point, Kp, Ki, Kd, upper_lim, lower_lim, cons_m, cons_b, error_smooth, error_integral, error, output)
-  Public smoothing_time = 60  ' seconds
+  Public smoothing_time = 45  ' seconds
   Dim error_smooth_prev, error_deriv, PID_out
   Dim should_integrate As Boolean
   Public delta_integral
@@ -508,7 +508,7 @@ BeginProg
     ' However, it takes minutes for the element temperature to stabilize to the applied voltage.
     ' Ignoring that causes the incorrect leaf temperature calculation as the elements warm or cool.
     ' Smooth the applied voltage to estimate an apparent voltage.
-    Public voltage_smoothing_time = 120  ' seconds
+    Public voltage_smoothing_time = 60  ' seconds
     Public voltage_alpha
     voltage_alpha = 1 - EXP(-delta_t / voltage_smoothing_time) ' sampling rate adjusted coefficient
     apparent_heat_voltage = PID_heat_lmt * voltage_alpha + (1 - voltage_alpha) * apparent_heat_voltage
