@@ -542,9 +542,9 @@ BeginProg
 
     If is_misting_plot Then
       #If LoggerType = CR1000
-        SDI12Recorder(treatment_hygrovue(), 7, "0", "M!", 1, 0)
+        SDI12Recorder(ref_hygrovue(), 7, "0", "M!", 1, 0)
       #ElseIf LoggerType = CR1000X
-        SDI12Recorder(treatment_hygrovue(), C7, "0", "M!", 1, 0)
+        SDI12Recorder(ref_hygrovue(), C7, "0", "M!", 1, 0)
       #EndIf
       SatVP(ref_e_s, ref_hygro_T)
       ref_e_a = ref_e_s * ref_hygro_RH / 100
