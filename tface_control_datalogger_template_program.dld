@@ -107,13 +107,13 @@ Public volt_limit_out
 ' VPD measurements variables
 Dim ref_e_s = NAN, ref_e_a = NAN, ref_leaf_e_s = NAN, treatment_e_s = NAN, treatment_e_a = NAN, treatment_leaf_e_s = NAN
 Public ref_hygrovue(2)
-Alias ref_hygrovue(1) = ref_hygro_RH   ' Percent
-Alias ref_hygrovue(2) = ref_hygro_T    ' degrees C
+Alias ref_hygrovue(1) = ref_hygro_T   ' degrees C
+Alias ref_hygrovue(2) = ref_hygro_RH    ' Percent
 Public ref_met_VPD = NAN, ref_leaf_VPD = NAN
 
 Public treatment_hygrovue(2)
-Alias treatment_hygrovue(1) = treatment_hygro_RH  ' Percent
-Alias treatment_hygrovue(2) = treatment_hygro_T   ' degrees C
+Alias treatment_hygrovue(1) = treatment_hygro_T  ' degrees C
+Alias treatment_hygrovue(2) = treatment_hygro_RH   ' Percent
 Public treatment_met_VPD, treatment_leaf_VPD
 
 ' VPD control & pid controller variables
